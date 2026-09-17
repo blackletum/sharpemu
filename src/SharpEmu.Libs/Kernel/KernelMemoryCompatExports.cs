@@ -5423,7 +5423,7 @@ public static partial class KernelMemoryCompatExports
 
         var invalidChars = Path.GetInvalidFileNameChars();
         appName = new string(appName.Select(ch => invalidChars.Contains(ch) ? '_' : ch).ToArray());
-        var root = Path.Combine(Path.GetTempPath(), "SharpEmu", appName, "temp0");
+        var root = Path.Combine(AppContext.BaseDirectory, "user", "temp", appName, "temp0");
         Environment.SetEnvironmentVariable(temp0VariableName, root);
         return root;
     }
@@ -5492,7 +5492,7 @@ public static partial class KernelMemoryCompatExports
 
         var invalidChars = Path.GetInvalidFileNameChars();
         appName = new string(appName.Select(ch => invalidChars.Contains(ch) ? '_' : ch).ToArray());
-        return Path.Combine(Path.GetTempPath(), "SharpEmu", appName);
+        return Path.Combine(AppContext.BaseDirectory, "user", "temp", appName);
     }
 
     private static void EnsureOpenParentDirectoryExists(string guestPath, string hostPath, int flags)

@@ -225,7 +225,7 @@ public static class AppContentExports
 
         var invalidChars = Path.GetInvalidFileNameChars();
         appName = new string(appName.Select(ch => invalidChars.Contains(ch) ? '_' : ch).ToArray());
-        var root = Path.Combine(Path.GetTempPath(), "SharpEmu", appName, "temp0");
+        var root = Path.Combine(AppContext.BaseDirectory, "user", "temp", appName, "temp0");
         Environment.SetEnvironmentVariable(temp0VariableName, root);
         return root;
     }
