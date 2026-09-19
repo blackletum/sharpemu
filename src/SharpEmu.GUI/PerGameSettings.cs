@@ -37,6 +37,8 @@ public sealed class PerGameSettings
 
     public List<string>? EnvironmentToggles { get; set; }
 
+    public List<string>? CustomEnvironmentVariables { get; set; }
+
     [JsonIgnore]
     public bool IsEmpty =>
         LogLevel is null &&
@@ -50,7 +52,8 @@ public sealed class PerGameSettings
         ScalingMode is null &&
         VSync is null &&
         HdrMode is null &&
-        EnvironmentToggles is null;
+        EnvironmentToggles is null &&
+        CustomEnvironmentVariables is null;
 
     public static string DirectoryPath =>
         Path.Combine(AppContext.BaseDirectory, "user", "custom_configs");
@@ -87,6 +90,12 @@ public sealed class PerGameSettings
         if (settings?.EnvironmentToggles is { } toggles)
         {
             settings.EnvironmentToggles = toggles.Where(entry => !string.IsNullOrEmpty(entry)).ToList();
+        }
+        if (settings?.CustomEnvironmentVariables is { } customEnvironmentVariables)
+        {
+            settings.CustomEnvironmentVariables = customEnvironmentVariables
+                .Where(entry => !string.IsNullOrWhiteSpace(entry))
+                .ToList();
         }
 
         return settings;
@@ -158,6 +167,7 @@ public sealed class PerGameSettings
         {
             EnvironmentToggles = null;
         }
+
     }
 
     public void Save(string titleId)

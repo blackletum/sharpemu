@@ -72,6 +72,8 @@ public sealed class GuiSettings
     /// <summary>Names of SHARPEMU_* switches set to "1" in the emulator's environment at launch.</summary>
     public List<string> EnvironmentToggles { get; set; } = new();
 
+    public string BinkPlaybackMode { get; set; } = "Host";
+
     /// <summary>Internal render resolution scale (1.0 = native, 0.5 = half).</summary>
     public double RenderResolutionScale { get; set; } = 1.0;
 
@@ -139,6 +141,7 @@ public sealed class GuiSettings
         settings.Resolution = NormalizeResolution(settings.Resolution);
         settings.ScalingMode = NormalizeChoice(settings.ScalingMode, "Fit", "Cover", "Stretch", "Integer");
         settings.HdrMode = NormalizeChoice(settings.HdrMode, "Auto", "On", "Off");
+        settings.BinkPlaybackMode = NormalizeChoice(settings.BinkPlaybackMode, "Host", "Guest", "Skip");
         settings.DisplayIndex = Math.Max(0, settings.DisplayIndex);
         settings.RefreshRate = Math.Clamp(settings.RefreshRate, 0, 1000);
 

@@ -83,6 +83,12 @@ public partial class MainWindow : Window
         LocalizedChoice.FromKey("On", "Common.On"),
         LocalizedChoice.FromKey("Off", "Common.Off"),
     ];
+    private readonly LocalizedChoice[] _binkPlaybackChoices =
+    [
+        LocalizedChoice.FromKey("Host", "Options.Env.BinkPlayback.Host"),
+        LocalizedChoice.FromKey("Guest", "Options.Env.BinkPlayback.Guest"),
+        LocalizedChoice.FromKey("Skip", "Options.Env.BinkPlayback.Skip"),
+    ];
     private readonly List<GameEntry> _allGames = new();
     private readonly ObservableCollection<GameEntry> _visibleGames = new();
     private readonly LibraryTileCollection _libraryTiles;
@@ -216,6 +222,7 @@ public partial class MainWindow : Window
                 LaunchSelected();
             }
         };
+        LaunchCustomEnvButton.Click += async (_, _) => await OpenCustomEnvironmentDialogAsync();
         ClearLogButton.Click += (_, _) => { _consoleLines.Clear(); _allConsoleLines.Clear(); };
         CopyLogButton.Click += async (_, _) => await CopyConsoleAsync();
         DetachConsoleButton.Click += (_, _) => ShowConsoleWindow();
@@ -276,6 +283,8 @@ public partial class MainWindow : Window
             SetEnvironmentToggle("SHARPEMU_DISABLE_IMPORT_LOOP_GUARD", EnvLoopGuardToggle.IsChecked == true);
         EnvWritableApp0Toggle.IsCheckedChanged += (_, _) =>
             SetEnvironmentToggle("SHARPEMU_WRITABLE_APP0", EnvWritableApp0Toggle.IsChecked == true);
+        BinkPlaybackBox.SelectionChanged += (_, _) =>
+            _settings.BinkPlaybackMode = SelectedComboText(BinkPlaybackBox, "Host");
         EnvVkValidationToggle.IsCheckedChanged += (_, _) =>
             SetEnvironmentToggle("SHARPEMU_VK_VALIDATION", EnvVkValidationToggle.IsChecked == true);
         EnvDumpSpirvToggle.IsCheckedChanged += (_, _) =>
@@ -355,7 +364,7 @@ public partial class MainWindow : Window
         {
             Process.Start(new ProcessStartInfo
             {
-                FileName = "https://github.com/sharpemu/sharpemu",
+                FileName = ProjectLinks.RepositoryUrl,
                 UseShellExecute = true
             });
         };
@@ -378,8 +387,7 @@ public partial class MainWindow : Window
 
             Process.Start(new ProcessStartInfo
             {
-                FileName =
-                    $"https://github.com/sharpemu/sharpemu/commit/{_latestCommitSha}",
+                FileName = ProjectLinks.CommitUrl(_latestCommitSha),
                 UseShellExecute = true
             });
         };
@@ -658,16 +666,13 @@ public partial class MainWindow : Window
     }
     private async Task LoadLatestCommitAsync()
     {
-        const string apiUrl =
-            "https://api.github.com/repos/sharpemu/sharpemu/commits/main";
-
         _latestCommitSha = null;
         LatestCommitHashText.Content = "Loading…";
         LatestCommitHashText.IsEnabled = false;
 
         try
         {
-            using var response = await GithubHttpClient.GetAsync(apiUrl);
+            using var response = await GithubHttpClient.GetAsync(ProjectLinks.LatestCommitApiUrl);
             var responseBody =
                 (await response.Content.ReadAsStringAsync()).Trim();
 
@@ -1168,6 +1173,7 @@ public partial class MainWindow : Window
         WindowModeBox.ItemsSource = _windowModeChoices;
         ScalingModeBox.ItemsSource = _scalingModeChoices;
         HdrModeBox.ItemsSource = _hdrModeChoices;
+        BinkPlaybackBox.ItemsSource = _binkPlaybackChoices;
     }
 
     private void RefreshLocalizedChoices()
@@ -1178,6 +1184,7 @@ public partial class MainWindow : Window
         RefreshChoices(_windowModeChoices);
         RefreshChoices(_scalingModeChoices);
         RefreshChoices(_hdrModeChoices);
+        RefreshChoices(_binkPlaybackChoices);
     }
 
     private static void RefreshChoices(IEnumerable<LocalizedChoice> choices)
@@ -1219,6 +1226,7 @@ public partial class MainWindow : Window
         EnvBthidToggle.IsChecked = _settings.EnvironmentToggles.Contains("SHARPEMU_BTHID_UNAVAILABLE");
         EnvLoopGuardToggle.IsChecked = _settings.EnvironmentToggles.Contains("SHARPEMU_DISABLE_IMPORT_LOOP_GUARD");
         EnvWritableApp0Toggle.IsChecked = _settings.EnvironmentToggles.Contains("SHARPEMU_WRITABLE_APP0");
+        BinkPlaybackBox.SelectedIndex = ChoiceIndex(_settings.BinkPlaybackMode, "Host", "Guest", "Skip");
         EnvVkValidationToggle.IsChecked = _settings.EnvironmentToggles.Contains("SHARPEMU_VK_VALIDATION");
         EnvDumpSpirvToggle.IsChecked = _settings.EnvironmentToggles.Contains("SHARPEMU_DUMP_SPIRV");
         EnvLogDirectMemoryToggle.IsChecked = _settings.EnvironmentToggles.Contains("SHARPEMU_LOG_DIRECT_MEMORY");
@@ -1458,6 +1466,7 @@ public partial class MainWindow : Window
     }
 
     private const string DefaultProfileEnvironmentName = "SHARPEMU_DEFAULT_PROFILE";
+    private const string BinkModeEnvironmentName = "SHARPEMU_BINK_MODE";
 
     private string SelectedLogLevel()
     {
@@ -2330,6 +2339,34 @@ public partial class MainWindow : Window
         }
     }
 
+    private async Task OpenCustomEnvironmentDialogAsync()
+    {
+        if (_isRunning || GameList.SelectedItem is not GameEntry game)
+        {
+            return;
+        }
+
+        var perGame = PerGameSettings.Load(game.TitleId);
+        var initialEntries = CustomEnvironmentVariables.Merge(
+            GlobalCustomEnvironmentSettings.Load(),
+            perGame?.CustomEnvironmentVariables);
+        var dialog = new CustomEnvironmentDialog(game.TitleId, initialEntries);
+        dialog.SaveGlobalRequested += entries => GlobalCustomEnvironmentSettings.Save(entries);
+        dialog.SaveGameRequested += (titleId, entries) =>
+        {
+            var settings = PerGameSettings.Load(titleId) ?? new PerGameSettings();
+            settings.CustomEnvironmentVariables = entries.Count == 0 ? null : entries.ToList();
+            settings.RemoveInheritedValues(_settings);
+            settings.Save(titleId);
+        };
+
+        var customEntries = await dialog.ShowDialog<IReadOnlyList<string>?>(this);
+        if (customEntries is not null && !_isRunning)
+        {
+            Launch(game.Path, game.Name, game.TitleId, customEntries);
+        }
+    }
+
     private void LaunchSelected()
     {
         if (GameList.SelectedItem is GameEntry game)
@@ -2338,7 +2375,11 @@ public partial class MainWindow : Window
         }
     }
 
-    private void Launch(string ebootPath, string displayName, string? titleId = null)
+    private void Launch(
+        string ebootPath,
+        string displayName,
+        string? titleId = null,
+        IReadOnlyList<string>? oneShotCustomEnvironment = null)
     {
         if (_isRunning)
         {
@@ -2349,7 +2390,12 @@ public partial class MainWindow : Window
             ? _allGames.FirstOrDefault(game =>
                 game.Path.Equals(ebootPath, GameLibraryPath.Comparison))?.TitleId
             : titleId;
-        var effective = EffectiveLaunchSettings.Resolve(_settings, PerGameSettings.Load(resolvedTitleId));
+        var perGame = PerGameSettings.Load(resolvedTitleId);
+        var effective = EffectiveLaunchSettings.Resolve(_settings, perGame);
+        var customEnvironment = CustomEnvironmentVariables.Merge(
+            GlobalCustomEnvironmentSettings.Load(),
+            perGame?.CustomEnvironmentVariables,
+            oneShotCustomEnvironment);
 
         _sndPreview.Stop();
         _consoleLines.Clear();
@@ -2396,10 +2442,32 @@ public partial class MainWindow : Window
         _appliedEnvironmentVariables.Add(DefaultProfileEnvironmentName);
 
         Environment.SetEnvironmentVariable(
+            BinkModeEnvironmentName,
+            _settings.BinkPlaybackMode switch
+            {
+                "Guest" => "guest",
+                "Skip" => "skip",
+                _ => "native",
+            });
+        _appliedEnvironmentVariables.Add(BinkModeEnvironmentName);
+
+        Environment.SetEnvironmentVariable(
             "SHARPEMU_RENDER_SCALE",
             _settings.RenderResolutionScale.ToString(
                 "0.###",
                 System.Globalization.CultureInfo.InvariantCulture));
+        _appliedEnvironmentVariables.Add("SHARPEMU_RENDER_SCALE");
+
+        foreach (var entry in customEnvironment)
+        {
+            if (!CustomEnvironmentVariables.TryParseEntry(entry, out var name, out var value))
+            {
+                continue;
+            }
+
+            Environment.SetEnvironmentVariable(name, value);
+            _appliedEnvironmentVariables.Add(name);
+        }
 
         if (SharpEmuLog.TryParseLevel(effective.LogLevel, out var logLevel))
         {
@@ -2687,6 +2755,8 @@ public partial class MainWindow : Window
             LaunchButton.Content = Localization.Instance.Get("Launch.Launch");
             LaunchButton.IsEnabled = GameList.SelectedItem is GameEntry;
         }
+
+        LaunchCustomEnvButton.IsEnabled = !_isRunning && GameList.SelectedItem is GameEntry;
 
         GameSettingsButton.IsEnabled =
             GameList.SelectedItem is GameEntry game &&

@@ -273,6 +273,7 @@ public partial class MainWindow
             VSync = GameVSyncToggle.IsChecked == true,
             HdrMode = SelectedComboText(GameHdrModeBox, "Auto"),
             EnvironmentToggles = BuildGameEnvironmentEntries(),
+            CustomEnvironmentVariables = PerGameSettings.Load(_gameSettingsTitleId)?.CustomEnvironmentVariables,
         };
         settings.RemoveInheritedValues(_settings);
         settings.Save(_gameSettingsTitleId);

@@ -339,6 +339,18 @@ SPDX-License-Identifier: GPL-2.0-or-later
                       Classes="playButton"
                       Content="Launch"
                       IsEnabled="False" />
+              <TextBlock Text="|"
+                         Foreground="{StaticResource MutedBrush}"
+                         FontSize="22"
+                         VerticalAlignment="Center"
+                         Margin="-4,0" />
+              <Button x:Name="LaunchCustomEnvButton"
+                      Classes="optionsCircle"
+                      ToolTip.Tip="{Binding [Launch.CustomEnv], Source={x:Static local:Localization.Instance}, x:CompileBindings=False}"
+                      AutomationProperties.Name="{Binding [Launch.CustomEnv], Source={x:Static local:Localization.Instance}, x:CompileBindings=False}">
+                <TextBlock Classes="materialSymbol"
+                           Text="keyboard_arrow_down" />
+              </Button>
               <Button x:Name="GameSettingsButton"
                       Classes="optionsCircle"
                       ToolTip.Tip="{Binding [Library.Context.GameSettings],
@@ -1481,6 +1493,16 @@ SPDX-License-Identifier: GPL-2.0-or-later
                       <Border Classes="optionsGroupDivider" />
 
                       <TextBlock Classes="optionsGroupHeader" Text="{Binding [Options.Env.Group.General], Source={x:Static local:Localization.Instance}}" />
+                      <local:SettingRow x:Name="BinkPlaybackRow"
+                                        Classes="optionRow"
+                                        Label="{Binding [Options.Env.BinkPlayback.Label], Source={x:Static local:Localization.Instance}}"
+                                        Description="{Binding [Options.Env.BinkPlayback.Desc], Source={x:Static local:Localization.Instance}}">
+                        <ComboBox x:Name="BinkPlaybackBox"
+                                  Classes="optionValue"
+                                  ToolTip.Tip="{Binding [Options.Env.BinkPlayback.Desc], Source={x:Static local:Localization.Instance}}"
+                                  ItemTemplate="{StaticResource LocalizedChoiceTemplate}" />
+                      </local:SettingRow>
+
                       <local:SettingRow x:Name="EnvBthidRow" Classes="optionRow" LabelFontFamily="Consolas,monospace" Label="SHARPEMU_BTHID_UNAVAILABLE"
                                         Description="{Binding [Options.Env.Bthid.Desc], Source={x:Static local:Localization.Instance}}">
                         <ToggleSwitch x:Name="EnvBthidToggle" Classes="optionToggle" />
