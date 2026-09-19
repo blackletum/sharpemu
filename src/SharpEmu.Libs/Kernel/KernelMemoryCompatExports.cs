@@ -4577,6 +4577,11 @@ public static partial class KernelMemoryCompatExports
                     }
                     break;
 
+                case 'S':
+                    // BSD printf's %S is %ls, including for the wide-output family.
+                    lengthMod = PrintfLength.Long;
+                    goto case 's';
+
                 case 's':
                     {
                         var strAddr = argumentSource.NextGpArg();
