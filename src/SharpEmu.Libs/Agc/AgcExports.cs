@@ -2117,6 +2117,7 @@ public static partial class AgcExports
     // populates the first 3 pairs; zero the rest of the scanned window so
     // every unpopulated slot is a harmless failed probe instead of
     // guest-stack garbage.
+    #pragma warning disable SHEM004
     [SysAbiExport(
         Nid = "dbOlWdppb4o",
         ExportName = "sceAgcAddPrimStateRegisters",
