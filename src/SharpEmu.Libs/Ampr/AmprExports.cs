@@ -316,7 +316,7 @@ public static class AmprExports
         var destination = ctx[CpuRegister.R8];
         var size = ctx[CpuRegister.R9];
 
-        if (commandBuffer == 0 || (destination == 0 && size != 0))
+        if (commandBuffer == 0 || !IsValidAprReadRange(destination, size))
         {
             return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_INVALID_ARGUMENT;
         }
@@ -327,40 +327,18 @@ public static class AmprExports
             return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
         }
 
-        if (!AmprFileRegistry.TryGetHostPath(fileId, out var hostPath))
+        // APR records the read here and performs the I/O only when the command
+        // buffer is submitted. Keep the sequential-offset sentinel as a SharpEmu
+        // compatibility extension and resolve it in CompleteReadFileRecord so
+        // queued reads observe command order.
+        if (fileOffset != ulong.MaxValue && !IsValidAprFileOffset(fileOffset))
         {
-            var app0Root = KernelMemoryCompatExports.ResolveGuestPath("$/");
-            if (!string.IsNullOrEmpty(app0Root))
-            {
-                AmprFileRegistry.EnsureApp0Indexed(app0Root);
-            }
-
-            if (!AmprFileRegistry.TryGetHostPath(fileId, out hostPath))
-            {
-                TraceAmprRead(ctx, commandBuffer, fileId, destination, size, fileOffset, bytesRead: 0, hostPath, (int)OrbisGen2Result.ORBIS_GEN2_ERROR_NOT_FOUND);
-                return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_NOT_FOUND;
-            }
+            return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_INVALID_ARGUMENT;
         }
 
-        if (fileOffset == unchecked((ulong)(long)-1))
-        {
-            fileOffset = PakDirectoryTracker.ResolveSequentialOffset(fileId, size);
-        }
-        else if (fileOffset > long.MaxValue)
-        {
-            fileOffset = 0;
-        }
-
-        var result = TryReadFileToGuestMemory(ctx, hostPath, fileOffset, destination, size, out var bytesRead);
-        TraceAmprRead(ctx, commandBuffer, fileId, destination, size, fileOffset, bytesRead, hostPath, result);
-        if (result != (int)OrbisGen2Result.ORBIS_GEN2_OK)
-        {
-            return result;
-        }
-
-        PakDirectoryTracker.OnReadCompleted(ctx, fileId, destination, fileOffset, bytesRead);
-        ctx[CpuRegister.Rax] = 0;
-        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+        return AppendReadFileRecord(ctx, commandBuffer, fileId, destination, size, fileOffset)
+            ? (int)OrbisGen2Result.ORBIS_GEN2_OK
+            : (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
     }
 
     [SysAbiExport(
