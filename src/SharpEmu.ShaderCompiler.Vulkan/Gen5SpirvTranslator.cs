@@ -1844,6 +1844,27 @@ public static partial class Gen5SpirvTranslator
             out string error)
         {
             error = string.Empty;
+            if (instruction.Opcode is "DsMinF32" or "DsMaxF32")
+            {
+                if (instruction.Sources.Count < 3)
+                {
+                    error = $"missing LDS operands for {instruction.Opcode}";
+                    return false;
+                }
+
+                var floatAddress = GetRawSource(instruction, 0);
+                var floatPointer = LdsPointer(floatAddress, control.SingleOffsetBytes);
+                EmitExecConditional(() =>
+                    EmitDataShareFloatAtomic(
+                        floatPointer,
+                        GetRawSource(instruction, 1),
+                        GetRawSource(instruction, 2),
+                        instruction.Opcode == "DsMaxF32",
+                        scope: 2,
+                        semantics: 0x108));
+                return true;
+            }
+
             var atomicOp = instruction.Opcode switch
             {
                 "DsAddU32" or "DsAddRtnU32" => SpirvOp.AtomicIAdd,
@@ -1889,6 +1910,65 @@ public static partial class Gen5SpirvTranslator
             });
 
             return true;
+        }
+
+        private void EmitDataShareFloatAtomic(
+            uint pointer,
+            uint data,
+            uint compare,
+            bool maxValue,
+            uint scope,
+            uint semantics)
+        {
+            var preheader = _module.AllocateId();
+            var header = _module.AllocateId();
+            var continueLabel = _module.AllocateId();
+            var mergeLabel = _module.AllocateId();
+            var exchanged = _module.AllocateId();
+
+            _module.AddStatement(SpirvOp.Branch, preheader);
+            _module.AddLabel(preheader);
+            var initial = _module.AddInstruction(
+                SpirvOp.AtomicLoad,
+                _uintType,
+                pointer,
+                UInt(scope),
+                UInt(semantics));
+            _module.AddStatement(SpirvOp.Branch, header);
+
+            _module.AddLabel(header);
+            var observed = _module.AddInstruction(
+                SpirvOp.Phi,
+                _uintType,
+                initial,
+                preheader,
+                exchanged,
+                continueLabel);
+            var observedFloat = Bitcast(_floatType, observed);
+            var compareFloat = Bitcast(_floatType, compare);
+            var replace = _module.AddInstruction(
+                maxValue ? SpirvOp.FOrdGreaterThan : SpirvOp.FOrdLessThan,
+                _boolType,
+                maxValue ? observedFloat : compareFloat,
+                maxValue ? compareFloat : observedFloat);
+            var next = _module.AddInstruction(SpirvOp.Select, _uintType, replace, data, observed);
+
+            _module.AddStatement(
+                SpirvOp.AtomicCompareExchange,
+                _uintType,
+                exchanged,
+                pointer,
+                UInt(scope),
+                UInt(semantics),
+                UInt((semantics & ~0x8u) | 0x2u),
+                next,
+                observed);
+            var success = _module.AddInstruction(SpirvOp.IEqual, _boolType, exchanged, observed);
+            _module.AddStatement(SpirvOp.LoopMerge, mergeLabel, continueLabel, 0);
+            _module.AddStatement(SpirvOp.BranchConditional, success, mergeLabel, continueLabel);
+            _module.AddLabel(continueLabel);
+            _module.AddStatement(SpirvOp.Branch, header);
+            _module.AddLabel(mergeLabel);
         }
 
         // Maps the AMD atomic-op name suffix shared by buffer/image atomics to a SPIR-V opcode.

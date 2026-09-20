@@ -1251,6 +1251,29 @@ public static partial class Gen5SpirvTranslator
         private bool TryEmitGlobalDataShareAtomic(Gen5ShaderInstruction instruction, Gen5DataShareControl control, out string error)
         {
             error = string.Empty;
+            if (instruction.Opcode is "DsMinF32" or "DsMaxF32")
+            {
+                if (instruction.Sources.Count < 3)
+                {
+                    error = $"missing GDS operands for {instruction.Opcode}";
+                    return false;
+                }
+
+                var floatIndex = GlobalDataShareIndex(GetRawSource(instruction, 0), control.SingleOffsetBytes);
+                EmitExecConditional(() =>
+                {
+                    EmitConditional(IsBlockWordInRange(_globalDataShare, floatIndex), () =>
+                        EmitDataShareFloatAtomic(
+                            BlockWordPointer(_globalDataShare, floatIndex),
+                            GetRawSource(instruction, 1),
+                            GetRawSource(instruction, 2),
+                            instruction.Opcode == "DsMaxF32",
+                            scope: 1,
+                            semantics: 0x48));
+                });
+                return true;
+            }
+
             var atomicOp = instruction.Opcode switch
             {
                 "DsAddU32" or "DsAddRtnU32" => SpirvOp.AtomicIAdd,

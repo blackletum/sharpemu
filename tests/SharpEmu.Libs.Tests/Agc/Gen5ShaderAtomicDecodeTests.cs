@@ -84,6 +84,21 @@ public sealed class Gen5ShaderAtomicDecodeTests
         Assert.Equal(new[] { Gen5Operand.Vector(3) }, instruction.Destinations);
     }
 
+    [Theory]
+    [InlineData(0xD8480004u, "DsMinF32")]
+    [InlineData(0xD84C0008u, "DsMaxF32")]
+    public void DsFloatMinMax_KeepReplacementAndCompareOperands(uint word, string opcode)
+    {
+        // DATA0 is the replacement value and DATA1 is the float compare operand.
+        var instruction = DecodeSingle(word, 0x00010907);
+
+        Assert.Equal(opcode, instruction.Opcode);
+        Assert.Equal(
+            new[] { Gen5Operand.Vector(7), Gen5Operand.Vector(9), Gen5Operand.Vector(1) },
+            instruction.Sources);
+        Assert.Empty(instruction.Destinations);
+    }
+
     [Fact]
     public void DsCmpstRtnB32_OrdersComparatorBeforeNewValue()
     {

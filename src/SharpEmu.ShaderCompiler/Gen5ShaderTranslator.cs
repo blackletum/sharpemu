@@ -1196,6 +1196,8 @@ public static partial class Gen5ShaderTranslator
             0x0E => "DsWrite2B32",
             0x0F => "DsWrite2St64B32",
             0x10 => "DsCmpstB32",
+            0x12 => "DsMinF32",
+            0x13 => "DsMaxF32",
             0x20 => "DsAddRtnU32",
             0x21 => "DsSubRtnU32",
             0x23 => "DsIncRtnU32",
@@ -1683,6 +1685,7 @@ public static partial class Gen5ShaderTranslator
     {
         "DsAddU32" or "DsSubU32" or "DsIncU32" or "DsDecU32" or
         "DsMinI32" or "DsMaxI32" or "DsMinU32" or "DsMaxU32" or
+        "DsMinF32" or "DsMaxF32" or
         "DsAndB32" or "DsOrB32" or "DsXorB32" or "DsCmpstB32" or
         "DsAddRtnU32" or "DsSubRtnU32" or "DsIncRtnU32" or "DsDecRtnU32" or
         "DsMinRtnI32" or "DsMaxRtnI32" or "DsMinRtnU32" or "DsMaxRtnU32" or
@@ -2155,6 +2158,13 @@ public static partial class Gen5ShaderTranslator
                     // DS_CMPST operand order is reversed vs buffer/image cmpswap:
                     // DATA0 holds the comparator, DATA1 holds the new value.
                     "DsCmpstB32" or "DsCmpstRtnB32" => [
+                        Gen5Operand.Vector(vectorAddress),
+                        Gen5Operand.Vector(vectorData0),
+                        Gen5Operand.Vector(vectorData1),
+                    ],
+                    // GFX10 DS_MIN/MAX_F32 use DATA0 as the replacement value and
+                    // DATA1 as the floating-point compare operand.
+                    "DsMinF32" or "DsMaxF32" => [
                         Gen5Operand.Vector(vectorAddress),
                         Gen5Operand.Vector(vectorData0),
                         Gen5Operand.Vector(vectorData1),
