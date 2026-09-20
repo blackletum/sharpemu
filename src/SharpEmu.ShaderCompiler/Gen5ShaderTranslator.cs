@@ -1010,6 +1010,7 @@ public static partial class Gen5ShaderTranslator
             0xED => "VCmpNeqF16",
             0xEE => "VCmpNltF16",
             0xEF => "VCmpTruF16",
+            0xF5 => "VCmpxNeU64",
             0xF8 => "VCmpxUF16",
             0xF9 => "VCmpxNgeF16",
             0xFA => "VCmpxNlgF16",

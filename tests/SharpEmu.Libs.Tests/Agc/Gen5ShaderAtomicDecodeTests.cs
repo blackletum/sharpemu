@@ -143,6 +143,20 @@ public sealed class Gen5ShaderAtomicDecodeTests
         Assert.False(control.Gds);
     }
 
+    [Fact]
+    public void VCmpxNeU64_DecodesVectorRegisterPairs()
+    {
+        // V_CMPX_NE_U64 v[0:1], v[3:4]. The translator consumes each encoded
+        // source as the low register of a 64-bit pair and updates EXEC.
+        var instruction = DecodeSingle(0x7DEA0700);
+
+        Assert.Equal("VCmpxNeU64", instruction.Opcode);
+        Assert.Equal(
+            new[] { Gen5Operand.Vector(0), Gen5Operand.Vector(3) },
+            instruction.Sources);
+        Assert.Empty(instruction.Destinations);
+    }
+
     private static Gen5ShaderInstruction DecodeSingle(params uint[] words)
     {
         var memory = new FakeCpuMemory(ShaderAddress, 0x1000);
