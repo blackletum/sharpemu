@@ -44,6 +44,35 @@ public sealed class Gen5ShaderAtomicDecodeTests
         Assert.Equal(1u, control.VectorData);
     }
 
+    [Theory]
+    [InlineData(0xE0FC4000u, "BufferAtomicFmin")]
+    [InlineData(0xE1004000u, "BufferAtomicFmax")]
+    public void BufferAtomicFloatMinMax_Decode(uint word, string opcode)
+    {
+        var instruction = DecodeSingle(word, 0x80000100);
+
+        Assert.Equal(opcode, instruction.Opcode);
+        var control = Assert.IsType<Gen5BufferMemoryControl>(instruction.Control);
+        Assert.Equal(1u, control.DwordCount);
+        Assert.Equal(1u, control.VectorData);
+        Assert.Equal(0u, control.ScalarResource);
+    }
+
+    [Fact]
+    public void BufferAtomicOrX2_UsesTwoDataRegisters()
+    {
+        // BUFFER_ATOMIC_OR_X2 v[1:2], off, s[0:3], 128 glc
+        var instruction = DecodeSingle(0xE1684000, 0x80000100);
+
+        Assert.Equal("BufferAtomicOrX2", instruction.Opcode);
+        var control = Assert.IsType<Gen5BufferMemoryControl>(instruction.Control);
+        Assert.Equal(2u, control.DwordCount);
+        Assert.Equal(1u, control.VectorData);
+        Assert.Equal(
+            new[] { Gen5Operand.Vector(1), Gen5Operand.Vector(2) },
+            instruction.Destinations);
+    }
+
     [Fact]
     public void ImageAtomicAdd_KeepsDataRegisterAsDestination()
     {
@@ -124,6 +153,19 @@ public sealed class Gen5ShaderAtomicDecodeTests
         Assert.Equal(0x08u, control.Offset0);
         Assert.Equal(0x08u, control.Offset1);
         Assert.Equal(0x0808u, control.SingleOffsetBytes);
+    }
+
+    [Fact]
+    public void DsReadI8_DecodesAddressAndDestination()
+    {
+        // DS_READ_I8 v5, v7 offset:3
+        var instruction = DecodeSingle(0xD8E40003, 0x05000007);
+
+        Assert.Equal("DsReadI8", instruction.Opcode);
+        Assert.Equal(new[] { Gen5Operand.Vector(7) }, instruction.Sources);
+        Assert.Equal(new[] { Gen5Operand.Vector(5) }, instruction.Destinations);
+        var control = Assert.IsType<Gen5DataShareControl>(instruction.Control);
+        Assert.Equal(3u, control.SingleOffsetBytes);
     }
 
     [Theory]
