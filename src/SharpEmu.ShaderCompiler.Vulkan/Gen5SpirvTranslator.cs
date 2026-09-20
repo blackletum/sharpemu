@@ -1610,6 +1610,30 @@ public static partial class Gen5SpirvTranslator
                     StoreV(instruction.Destinations[0].Value, value);
                     return true;
                 }
+                case "DsReadI8":
+                {
+                    if (instruction.Destinations.Count < 1 || instruction.Sources.Count < 1)
+                    {
+                        error = "missing LDS signed byte read operand";
+                        return false;
+                    }
+
+                    var address = GetRawSource(instruction, 0);
+                    var byteAddress = control.SingleOffsetBytes == 0
+                        ? address
+                        : IAdd(address, UInt(control.SingleOffsetBytes));
+                    var word = Load(_uintType, LdsPointer(address, control.SingleOffsetBytes));
+                    var shift = ShiftLeftLogical(BitwiseAnd(byteAddress, UInt(3)), UInt(3));
+                    var packed = ShiftRightLogical(word, shift);
+                    var signedByte = _module.AddInstruction(
+                        SpirvOp.BitFieldSExtract,
+                        _intType,
+                        Bitcast(_intType, packed),
+                        UInt(0),
+                        UInt(8));
+                    StoreV(instruction.Destinations[0].Value, Bitcast(_uintType, signedByte));
+                    return true;
+                }
                 case "DsReadB64":
                 case "DsReadB96":
                 case "DsReadB128":
@@ -1971,6 +1995,65 @@ public static partial class Gen5SpirvTranslator
             _module.AddLabel(mergeLabel);
         }
 
+        private uint EmitBufferFloatAtomic(
+            uint pointer,
+            uint value,
+            bool maxValue,
+            uint scope,
+            uint semantics)
+        {
+            var preheader = _module.AllocateId();
+            var header = _module.AllocateId();
+            var continueLabel = _module.AllocateId();
+            var mergeLabel = _module.AllocateId();
+            var exchanged = _module.AllocateId();
+
+            _module.AddStatement(SpirvOp.Branch, preheader);
+            _module.AddLabel(preheader);
+            var initial = _module.AddInstruction(
+                SpirvOp.AtomicLoad,
+                _uintType,
+                pointer,
+                UInt(scope),
+                UInt(semantics));
+            _module.AddStatement(SpirvOp.Branch, header);
+
+            _module.AddLabel(header);
+            var observed = _module.AddInstruction(
+                SpirvOp.Phi,
+                _uintType,
+                initial,
+                preheader,
+                exchanged,
+                continueLabel);
+            var observedFloat = Bitcast(_floatType, observed);
+            var valueFloat = Bitcast(_floatType, value);
+            var replace = _module.AddInstruction(
+                maxValue ? SpirvOp.FOrdGreaterThan : SpirvOp.FOrdLessThan,
+                _boolType,
+                valueFloat,
+                observedFloat);
+            var next = _module.AddInstruction(SpirvOp.Select, _uintType, replace, value, observed);
+
+            _module.AddStatement(
+                SpirvOp.AtomicCompareExchange,
+                _uintType,
+                exchanged,
+                pointer,
+                UInt(scope),
+                UInt(semantics),
+                UInt((semantics & ~0x8u) | 0x2u),
+                next,
+                observed);
+            var success = _module.AddInstruction(SpirvOp.IEqual, _boolType, exchanged, observed);
+            _module.AddStatement(SpirvOp.LoopMerge, mergeLabel, continueLabel, 0);
+            _module.AddStatement(SpirvOp.BranchConditional, success, mergeLabel, continueLabel);
+            _module.AddLabel(continueLabel);
+            _module.AddStatement(SpirvOp.Branch, header);
+            _module.AddLabel(mergeLabel);
+            return observed;
+        }
+
         // Maps the AMD atomic-op name suffix shared by buffer/image atomics to a SPIR-V opcode.
         // Inc/Dec approximate the AMD wrap-clamp semantics (MEM = tmp >= DATA ? 0 : tmp + 1),
         // which is exact for the common 0xFFFFFFFF clamp operand.
@@ -2145,7 +2228,70 @@ public static partial class Gen5SpirvTranslator
 
             if (instruction.Opcode.StartsWith("BufferAtomic", StringComparison.Ordinal))
             {
-                if (!TryGetAtomicOp(instruction.Opcode["BufferAtomic".Length..], out var atomicOp))
+                var atomicSuffix = instruction.Opcode["BufferAtomic".Length..];
+                if (atomicSuffix == "OrX2")
+                {
+                    EmitExecConditional(() =>
+                    {
+                        var secondAddress = IAdd(dwordAddress, UInt(1));
+                        var inRange = _module.AddInstruction(
+                            SpirvOp.LogicalAnd,
+                            _boolType,
+                            IsBufferWordInRange(bindingIndex, dwordAddress),
+                            IsBufferWordInRange(bindingIndex, secondAddress));
+                        EmitConditional(inRange, () =>
+                        {
+                            var originalLow = EmitAtomic(
+                                SpirvOp.AtomicOr,
+                                _uintType,
+                                BufferWordPointer(bindingIndex, dwordAddress),
+                                scope: 1,
+                                semantics: 0x48,
+                                value: () => LoadV(control.VectorData),
+                                comparator: () => UInt(0));
+                            var originalHigh = EmitAtomic(
+                                SpirvOp.AtomicOr,
+                                _uintType,
+                                BufferWordPointer(bindingIndex, secondAddress),
+                                scope: 1,
+                                semantics: 0x48,
+                                value: () => LoadV(control.VectorData + 1),
+                                comparator: () => UInt(0));
+                            if (control.Glc)
+                            {
+                                StoreV(control.VectorData, originalLow);
+                                StoreV(control.VectorData + 1, originalHigh);
+                            }
+                        });
+                    });
+
+                    return true;
+                }
+
+                if (atomicSuffix is "Fmin" or "Fmax")
+                {
+                    EmitExecConditional(() =>
+                    {
+                        var inRange = IsBufferWordInRange(bindingIndex, dwordAddress);
+                        EmitConditional(inRange, () =>
+                        {
+                            var original = EmitBufferFloatAtomic(
+                                BufferWordPointer(bindingIndex, dwordAddress),
+                                LoadV(control.VectorData),
+                                maxValue: atomicSuffix == "Fmax",
+                                scope: 1,
+                                semantics: 0x48);
+                            if (control.Glc)
+                            {
+                                StoreV(control.VectorData, original);
+                            }
+                        });
+                    });
+
+                    return true;
+                }
+
+                if (!TryGetAtomicOp(atomicSuffix, out var atomicOp))
                 {
                     error = $"unsupported buffer opcode {instruction.Opcode}";
                     return false;
