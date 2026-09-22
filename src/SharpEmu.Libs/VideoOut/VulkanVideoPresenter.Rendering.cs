@@ -811,18 +811,18 @@ internal static unsafe partial class VulkanVideoPresenter
             using var profileScope = RenderPhaseProfile.MeasureDetail(RenderPhaseProfile.Phase.DrawRecording);
             var (buffer, offset) = _bufferCache.ObtainBuffer(argumentsAddress, 3u * sizeof(uint), false);
             var command = BeginBatchedGuestCommands();
-            var barrier = new BufferMemoryBarrier
+            var barrier = new BufferMemoryBarrier2
             {
-                SType = StructureType.BufferMemoryBarrier,
-                SrcAccessMask = AccessFlags.ShaderWriteBit | AccessFlags.TransferWriteBit | AccessFlags.MemoryWriteBit,
-                DstAccessMask = AccessFlags.IndirectCommandReadBit,
+                SType = StructureType.BufferMemoryBarrier2,
+                SrcAccessMask = AccessFlags2.ShaderWriteBit | AccessFlags2.TransferWriteBit | AccessFlags2.MemoryWriteBit,
+                DstAccessMask = AccessFlags2.IndirectCommandReadBit,
                 SrcQueueFamilyIndex = Vk.QueueFamilyIgnored,
                 DstQueueFamilyIndex = Vk.QueueFamilyIgnored,
                 Buffer = buffer.Handle,
                 Offset = offset,
                 Size = 3u * sizeof(uint),
             };
-            _vk.CmdPipelineBarrier(command, PipelineStageFlags.AllCommandsBit, PipelineStageFlags.DrawIndirectBit, 0, 0, null, 1, &barrier, 0, null);
+            VulkanSynchronization.PipelineBarrier(_vk,command, PipelineStageFlags.AllCommandsBit, PipelineStageFlags.DrawIndirectBit, 0, 0, null, 1, &barrier, 0, null);
             _vk.CmdDispatchIndirect(command, buffer.Handle, offset);
             CountDraw();
             return true;
@@ -832,13 +832,13 @@ internal static unsafe partial class VulkanVideoPresenter
         {
             EndRendering();
             var command = BeginBatchedGuestCommands();
-            var barrier = new MemoryBarrier
+            var barrier = new MemoryBarrier2
             {
-                SType = StructureType.MemoryBarrier,
-                SrcAccessMask = sourceAccess,
-                DstAccessMask = destinationAccess,
+                SType = StructureType.MemoryBarrier2,
+                SrcAccessMask = VulkanSynchronization.Access(sourceAccess),
+                DstAccessMask = VulkanSynchronization.Access(destinationAccess),
             };
-            _vk.CmdPipelineBarrier(command, sourceStages, destinationStages, 0, 1, &barrier, 0, null, 0, null);
+            VulkanSynchronization.PipelineBarrier(_vk,command, sourceStages, destinationStages, 0, 1, &barrier, 0, null, 0, null);
         }
 
         public void ShaderWriteBarrier(PipelineStageFlags sourceStages) =>
