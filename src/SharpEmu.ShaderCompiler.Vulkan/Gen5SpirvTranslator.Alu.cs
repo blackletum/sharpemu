@@ -3955,7 +3955,7 @@ public static partial class Gen5SpirvTranslator
             {
                 targetLane = BitwiseAnd(targetLane, UInt(31));
             }
-            var shuffled = ShuffleLane(value, targetLane);
+            var shuffled = ShuffleHalfWaveLane(value, targetLane);
             if (control.FetchInactive)
             {
                 return shuffled;
@@ -3968,7 +3968,7 @@ public static partial class Gen5SpirvTranslator
                 UInt(1),
                 UInt(0));
             var sourceActive = IsNotZero(
-                ShuffleLane(activeWord, targetLane));
+                ShuffleHalfWaveLane(activeWord, targetLane));
             return _module.AddInstruction(
                 SpirvOp.Select,
                 _uintType,
@@ -3991,7 +3991,7 @@ public static partial class Gen5SpirvTranslator
             // operations are limited to a single half-wave for some encodings, so we 
             // must not clamp wave64 lanes to 31; use the full lane mask instead.
             safeTarget = BitwiseAnd(safeTarget, UInt(_waveLaneCount == 64 ? 63u : 31u));
-            var shuffled = ShuffleLane(value, safeTarget);
+            var shuffled = ShuffleHalfWaveLane(value, safeTarget);
 
             var sourceAvailable = inRange;
             if (!control.FetchInactive)
@@ -4002,7 +4002,7 @@ public static partial class Gen5SpirvTranslator
                     Load(_boolType, _exec),
                     UInt(1),
                     UInt(0));
-                var shuffledActive = ShuffleLane(activeWord, safeTarget);
+                var shuffledActive = ShuffleHalfWaveLane(activeWord, safeTarget);
                 sourceAvailable = _module.AddInstruction(
                     SpirvOp.LogicalAnd,
                     _boolType,
@@ -5124,11 +5124,9 @@ public static partial class Gen5SpirvTranslator
             }
 
             var targetLane = IAdd(rowBase, selector);
-            // Mask to guest wave size — on Radeon hardware DPP is limited to a 
-            // single half-wave for some encodings, but we must not clamp wave64 
-            // lanes to 31; use the full lane mask instead.
+            // Select a guest lane first; ShuffleHalfWaveLane maps it to the host subgroup.
             targetLane = BitwiseAnd(targetLane, UInt(_waveLaneCount == 64 ? 63u : 31u));
-            var shuffled = ShuffleLane(value, targetLane);
+            var shuffled = ShuffleHalfWaveLane(value, targetLane);
             var fetchInactive = (control.OperandSelect & 1) != 0;
             if (fetchInactive)
             {
@@ -5142,7 +5140,7 @@ public static partial class Gen5SpirvTranslator
                 UInt(1),
                 UInt(0));
             var sourceActive = IsNotZero(
-                ShuffleLane(activeWord, targetLane));
+                ShuffleHalfWaveLane(activeWord, targetLane));
             return _module.AddInstruction(
                 SpirvOp.Select,
                 _uintType,
