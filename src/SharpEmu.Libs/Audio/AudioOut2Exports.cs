@@ -391,8 +391,20 @@ public static class AudioOut2Exports
         LibraryName = "libSceAudioOut2")]
     public static int AudioOut2ContextDestroy(CpuContext ctx)
     {
-        // Shared backend lifetime is process-wide; just drop the context entry.
-        Contexts.TryRemove(ctx[CpuRegister.Rdi], out _);
+        var contextHandle = ctx[CpuRegister.Rdi];
+        Contexts.TryRemove(contextHandle, out _);
+        foreach (var (portHandle, port) in Ports)
+        {
+            if (port.ContextHandle != contextHandle ||
+                !Ports.TryRemove(portHandle, out var removedPort))
+            {
+                continue;
+            }
+
+            Interlocked.Exchange(ref removedPort.PcmData, null);
+            removedPort.PcmAddress = 0;
+        }
+
         return SetReturn(ctx, 0);
     }
 
