@@ -74,6 +74,7 @@ public static class SaveDataExports
     private const int OrbisSaveDataErrorNoEvent = unchecked((int)0x809F0008); // NOT_FOUND: no pending event
     private const int OrbisSaveDataErrorBadMounted = unchecked((int)0x809F0013);
     // SceSaveDataEventType
+    private const uint EventTypeBackupEnd = 2;
     private const uint EventTypeSaveDataMemorySyncEnd = 3;
     private const int SaveDataTitleIdStructSize = 0x10;
     private const int SaveDataEventSize = 0x68;
@@ -106,7 +107,60 @@ public static class SaveDataExports
         {
             _events.Enqueue(new SaveDataEvent(type, errorCode, userId, titleId, dirName));
         }
-        TraceSaveData($"event.enqueue type={type} user={userId} dir='{dirName}' err=0x{errorCode:X}");
+        TraceSaveData($"event.enqueue type={type} user={userId} title='{titleId}' dir='{dirName}' err=0x{errorCode:X}");
+    }
+
+    [SysAbiExport(
+        Nid = "z1JA8-iJt3k",
+        ExportName = "sceSaveDataBackup",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libSceSaveData")]
+    public static int SaveDataBackup(CpuContext ctx)
+    {
+        var backupAddress = ctx[CpuRegister.Rdi];
+        if (backupAddress == 0)
+        {
+            return SetReturn(ctx, OrbisSaveDataErrorParameter);
+        }
+
+        if (!TryReadInt32(ctx, backupAddress, out var userId) ||
+            !ctx.TryReadUInt64(backupAddress + 0x08, out var titleIdAddress) ||
+            !ctx.TryReadUInt64(backupAddress + 0x10, out var dirNameAddress))
+        {
+            return SetReturn(ctx, (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT);
+        }
+
+        if (userId < 0 || dirNameAddress == 0)
+        {
+            return SetReturn(ctx, OrbisSaveDataErrorParameter);
+        }
+
+        if (!TryReadFixedAscii(ctx, dirNameAddress, SaveDataDirNameSize, out var dirName))
+        {
+            return SetReturn(ctx, (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT);
+        }
+
+        if (string.IsNullOrWhiteSpace(dirName))
+        {
+            return SetReturn(ctx, OrbisSaveDataErrorParameter);
+        }
+
+        string titleId;
+        if (titleIdAddress == 0)
+        {
+            titleId = ResolveConfiguredTitleId();
+        }
+        else if (!TryReadFixedAscii(ctx, titleIdAddress, SaveDataTitleIdSize, out titleId))
+        {
+            return SetReturn(ctx, (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT);
+        }
+        else if (string.IsNullOrWhiteSpace(titleId))
+        {
+            return SetReturn(ctx, OrbisSaveDataErrorParameter);
+        }
+
+        EnqueueEvent(EventTypeBackupEnd, userId, titleId, dirName);
+        return SetReturn(ctx, 0);
     }
 
     [SysAbiExport(
