@@ -70,6 +70,7 @@ public static class AudioOut2Exports
     // SceAudioOut2Attribute: u32 attributeId, 4 pad, const void* value, size_t valueSize.
     private const int AttributeEntrySize = 0x18;
     private const uint PortAttributeIdPcm = 0;
+    private const ushort AudioOut2PortTypeVibration = 6;
     private const uint PortAttributeIdGain = 1;
     private const uint PortAttributeIdPassthrough = 5;
     private const uint PortAttributeIdAmbisonics = 8;
