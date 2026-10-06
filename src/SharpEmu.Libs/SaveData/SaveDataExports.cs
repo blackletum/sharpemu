@@ -75,7 +75,8 @@ public static class SaveDataExports
     private const int OrbisSaveDataErrorBadMounted = unchecked((int)0x809F0013);
     // SceSaveDataEventType
     private const uint EventTypeSaveDataMemorySyncEnd = 3;
-    private const int SaveDataEventSize = 0x60;
+    private const int SaveDataTitleIdStructSize = 0x10;
+    private const int SaveDataEventSize = 0x68;
     private const int MountInfoSize = 0x40;
     private const uint SaveDataBlockSize = 65536;
     private const ulong SaveDataBlocksMax = 16384;
@@ -86,14 +87,24 @@ public static class SaveDataExports
     // mountPoint -> live mount, for umount/IsMounted/GetMountInfo.
     private static readonly Dictionary<string, MountEntry> _mounts = new(StringComparer.Ordinal);
 
-    private readonly record struct SaveDataEvent(uint Type, int ErrorCode, int UserId, string DirName);
+    private readonly record struct SaveDataEvent(
+        uint Type,
+        int ErrorCode,
+        int UserId,
+        string TitleId,
+        string DirName);
     private sealed record MountEntry(string SlotDir, string DirName, int UserId);
 
-    private static void EnqueueEvent(uint type, int userId, string dirName, int errorCode = 0)
+    private static void EnqueueEvent(
+        uint type,
+        int userId,
+        string titleId,
+        string dirName,
+        int errorCode = 0)
     {
         lock (_eventGate)
         {
-            _events.Enqueue(new SaveDataEvent(type, errorCode, userId, dirName));
+            _events.Enqueue(new SaveDataEvent(type, errorCode, userId, titleId, dirName));
         }
         TraceSaveData($"event.enqueue type={type} user={userId} dir='{dirName}' err=0x{errorCode:X}");
     }
@@ -131,7 +142,14 @@ public static class SaveDataExports
         BinaryPrimitives.WriteUInt32LittleEndian(ev[0x00..], pending.Type);
         BinaryPrimitives.WriteInt32LittleEndian(ev[0x04..], pending.ErrorCode);
         BinaryPrimitives.WriteInt32LittleEndian(ev[0x08..], pending.UserId);
-        WriteAscii(ev.Slice(0x10, SaveDataDirNameSize), pending.DirName);
+        WriteFixedAscii(
+            ev.Slice(0x10, SaveDataTitleIdStructSize),
+            pending.TitleId,
+            SaveDataTitleIdSize);
+        WriteFixedAscii(
+            ev.Slice(0x20, SaveDataDirNameSize),
+            pending.DirName,
+            SaveDataDirNameSize);
         if (!ctx.Memory.TryWrite(eventAddress, ev))
         {
             return SetReturn(ctx, (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT);
@@ -1241,6 +1259,19 @@ public static class SaveDataExports
         }
     }
 
+    private static void WriteFixedAscii(
+        Span<byte> destination,
+        string value,
+        int maxContentLength)
+    {
+        var count = Math.Min(value.Length, Math.Min(destination.Length, maxContentLength));
+        for (var i = 0; i < count; i++)
+        {
+            var ch = value[i];
+            destination[i] = ch <= 0x7F ? (byte)ch : (byte)'?';
+        }
+    }
+
     private static bool TryReadInt32(CpuContext ctx, ulong address, out int value)
     {
         Span<byte> bytes = stackalloc byte[sizeof(int)];
@@ -1486,7 +1517,11 @@ public static class SaveDataExports
         // sync as asynchronous and blocks a worker on sceSaveDataGetEventResult
         // until the SAVE_DATA_MEMORY_SYNC_END event arrives. Post it so that
         // poll completes (this is what wedged Dead Cells at FLIP 0 in-level).
-        EnqueueEvent(EventTypeSaveDataMemorySyncEnd, userId, string.Empty);
+        EnqueueEvent(
+            EventTypeSaveDataMemorySyncEnd,
+            userId,
+            ResolveConfiguredTitleId(),
+            "sce_sdmemory");
         return ctx.SetReturn(0);
     }
 
