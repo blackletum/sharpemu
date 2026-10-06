@@ -689,6 +689,11 @@ public static class SaveDataExports
         ExportName = "sceSaveDataDirNameSearchPs4",
         Target = Generation.Gen4 | Generation.Gen5,
         LibraryName = "libSceSaveData")]
+    [SysAbiExport(
+        Nid = "PHnuI4LhuRk",
+        ExportName = "sceSaveDataDirNameSearch2",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libSceSaveData")]
     public static int SaveDataDirNameSearch(CpuContext ctx)
     {
         var condAddress = ctx[CpuRegister.Rdi];
