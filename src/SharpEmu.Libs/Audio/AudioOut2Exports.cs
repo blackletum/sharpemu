@@ -525,11 +525,6 @@ public static class AudioOut2Exports
         // [rbp-0x10] zeroed the canary low half and killed Bink Snd @ eboot+0xAE36.
         var outLevelAddress = ctx[CpuRegister.Rsi];
         var outAvailableAddress = ctx[CpuRegister.Rdx];
-        if (outLevelAddress == 0)
-        {
-            outLevelAddress = outAvailableAddress;
-            outAvailableAddress = 0;
-        }
 
         // Titles size their rendering by these: Wwise renders exactly puiAvailableQueues grains per
         // update and pushes them non-blocking, so a queue always reported empty made it render a
