@@ -212,7 +212,7 @@ public static class AudioOut2Exports
         public uint Ambisonics = AmbisonicsNone;
         public uint Passthrough;
 
-        public int PcmPending;
+        public byte[]? PcmData;
 
     }
 
@@ -622,14 +622,38 @@ public static class AudioOut2Exports
                 continue;
             }
 
-            port.PcmAddress = BinaryPrimitives.ReadUInt64LittleEndian(pcm);
-            Volatile.Write(ref port.PcmPending, port.PcmAddress != 0 ? 1 : 0);
+            var pcmAddress = BinaryPrimitives.ReadUInt64LittleEndian(pcm);
+            byte[]? pcmData = null;
+            if (pcmAddress != 0 &&
+                TryDecodeDataFormat(port.DataFormat, out var channels, out var bytesPerSample, out _) &&
+                IsSnapshotPcmPort(port.PortType, channels))
+            {
+                int byteLength;
+                try
+                {
+                    byteLength = checked((int)port.GrainSamples * channels * bytesPerSample);
+                }
+                catch (OverflowException)
+                {
+                    return SetReturn(ctx, (int)OrbisGen2Result.ORBIS_GEN2_ERROR_INVALID_ARGUMENT);
+                }
+
+                pcmData = new byte[byteLength];
+                if (!ctx.Memory.TryRead(pcmAddress, pcmData))
+                {
+                    return SetReturn(ctx, (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT);
+                }
+            }
+
+            port.PcmAddress = pcmAddress;
+            Volatile.Write(ref port.PcmData, pcmData);
             var n = Interlocked.Increment(ref _attributePcmTraceCount);
             if (n <= 8 || n % 500 == 0)
             {
                 TraceAudioOut2(
                     $"port-set-pcm#{n} port=0x{portHandle:X} pcm=0x{port.PcmAddress:X} " +
-                    $"format=0x{port.DataFormat:X} grains={port.GrainSamples}");
+                    $"bytes={pcmData?.Length ?? 0} format=0x{port.DataFormat:X} " +
+                    $"grains={port.GrainSamples}");
             }
         }
 
@@ -1155,7 +1179,6 @@ public static class AudioOut2Exports
         lock (HostSubmitGate)
         {
             var mix = ArrayPool<float>.Shared.Rent(frames * 2);
-            var source = ArrayPool<byte>.Shared.Rent(frames * 16 * sizeof(float));
             var output = ArrayPool<byte>.Shared.Rent(frames * AudioPcmConversion.OutputFrameSize);
             try
             {
@@ -1164,29 +1187,42 @@ public static class AudioOut2Exports
                 foreach (var port in Ports.Values)
                 {
                     if (port.ContextHandle != context.Handle ||
-                        port.PcmAddress == 0 ||
-                        Interlocked.Exchange(ref port.PcmPending, 0) == 0 ||
-                        !TryDecodeDataFormat(port.DataFormat, out var ch, out var bps, out var isFloat) ||
-                        !TryGetStereoGains(port.PortType, ch, port.Gain, port.Ambisonics, port.Passthrough,
-                            out var leftGain, out var rightGain))
+                        !TryDecodeDataFormat(port.DataFormat, out var ch, out var bps, out var isFloat))
+                    {
+                        continue;
+                    }
+
+                    var pcmData = TakePortPcmSnapshot(port);
+                    if (pcmData is null)
+                    {
+                        continue;
+                    }
+
+                    if (!TryGetStereoGains(
+                            port.PortType,
+                            ch,
+                            port.Gain,
+                            port.Ambisonics,
+                            port.Passthrough,
+                            out var leftGain,
+                            out var rightGain))
                     {
                         continue;
                     }
 
                     var byteLength = checked(frames * ch * bps);
-                    if (byteLength <= 0 || byteLength > source.Length)
+                    if (byteLength <= 0 || byteLength > checked(frames * 16 * sizeof(float)))
                     {
                         continue;
                     }
 
-                    var sourceSpan = source.AsSpan(0, byteLength);
-                    if (!ctx.Memory.TryRead(port.PcmAddress, sourceSpan))
+                    if (pcmData.Length < byteLength)
                     {
                         continue;
                     }
 
                     MixPortIntoStereo(
-                        sourceSpan,
+                        pcmData.AsSpan(0, byteLength),
                         mix.AsSpan(0, frames * 2),
                         frames,
                         ch,
@@ -1238,10 +1274,68 @@ public static class AudioOut2Exports
             finally
             {
                 ArrayPool<float>.Shared.Return(mix);
-                ArrayPool<byte>.Shared.Return(source);
                 ArrayPool<byte>.Shared.Return(output);
             }
         }
+    }
+
+    internal static byte[]? GetPortPcmSnapshotForTests(ulong portHandle)
+    {
+        if (!Ports.TryGetValue(portHandle, out var port))
+        {
+            return null;
+        }
+
+        var snapshot = Volatile.Read(ref port.PcmData);
+        return snapshot?.ToArray();
+    }
+
+    internal static bool HasPortForTests(ulong portHandle) => Ports.ContainsKey(portHandle);
+
+    internal static byte[]? TakePortPcmSnapshotForTests(ulong portHandle)
+    {
+        return Ports.TryGetValue(portHandle, out var port)
+            ? TakePortPcmSnapshot(port)
+            : null;
+    }
+
+    private static byte[]? TakePortPcmSnapshot(PortState port) =>
+        Interlocked.Exchange(ref port.PcmData, null);
+
+    internal static void SetStreamFactoryForTests(Func<uint, IHostAudioStream?>? streamFactory) =>
+        Volatile.Write(ref _streamFactoryForTests, streamFactory);
+
+    internal static void ResetForTests()
+    {
+        Contexts.Clear();
+        Ports.Clear();
+        SpeakerArrays.Clear();
+        Interlocked.Exchange(ref _nextContextHandle, 1);
+        Interlocked.Exchange(ref _nextUserHandle, 1);
+        Interlocked.Exchange(ref _nextPortId, 0);
+        Interlocked.Exchange(ref _pushTraceCount, 0);
+        Interlocked.Exchange(ref _submitTraceCount, 0);
+        Interlocked.Exchange(ref _submitSkipTraceCount, 0);
+        Interlocked.Exchange(ref _attributePcmTraceCount, 0);
+
+        lock (HostBackendGate)
+        {
+            PrimaryBackend?.Dispose();
+            SecondaryBackend?.Dispose();
+            PrimaryBackend = null;
+            SecondaryBackend = null;
+            PrimaryBackendName = "none";
+            SecondaryBackendName = "none";
+            PrimaryContextHandle = 0;
+        }
+
+        Volatile.Write(ref _streamFactoryForTests, null);
+    }
+
+    private static bool IsMainOrBgmPort(ushort portType)
+    {
+        var kind = portType & 0xFF;
+        return kind is 0 or 1;
     }
 
     internal static bool RoutesToSpeakers(ushort portType) => (portType & 0xFF) is 0 or 1 or 2;
@@ -1297,6 +1391,11 @@ public static class AudioOut2Exports
 
         return false;
     }
+
+    private static bool IsSnapshotPcmPort(ushort portType, int channels) =>
+        RoutesToSpeakers(portType) &&
+        (portType & 0xFF) != AudioOut2PortTypeVibration &&
+        (!IsObjectPort(portType) || channels == 1);
 
     internal static void MixPortIntoStereo(
         ReadOnlySpan<byte> source,
