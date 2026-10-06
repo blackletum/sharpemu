@@ -12,29 +12,82 @@ public static class Http2Exports
     private const int Http2ErrorInvalidVersion = unchecked((int)0x817B106A);
     private const int Http2ErrorInvalidId = unchecked((int)0x817B1100);
     private const int Http2ErrorInvalidValue = unchecked((int)0x817B11FE);
+    private const int Http2ErrorNullPointer = unchecked((int)0x817B1225);
     private const int Http2ErrorProhibited = unchecked((int)0x817B5224);
 
     private static readonly ConcurrentDictionary<int, Http2Context> Contexts = new();
     private static readonly ConcurrentDictionary<int, Http2Template> Templates = new();
     private static readonly ConcurrentDictionary<int, Http2Request> Requests = new();
+    private static readonly ConcurrentDictionary<int, Http2CookieBox> CookieBoxes = new();
     private static int _nextContextId;
     private static int _nextTemplateId = 0x1000;
     private static int _nextRequestId = 0x2000;
+    private static int _nextCookieBoxId = 0x3000;
 
     private sealed record Http2Context(int NetId, int SslId, ulong PoolSize, int MaxRequests);
 
-    private sealed record Http2Template(int ContextId, string UserAgent, int HttpVersion, bool AutoProxyConfig);
+    private sealed record Http2CookieBox;
 
-    private sealed record Http2Request(int TemplateId, string Method, string Url, ulong ContentLength);
+    private sealed record Http2Options(
+        uint MinimumSslVersion,
+        uint SslOptions,
+        ulong RedirectCallback,
+        ulong RedirectUserArgument,
+        bool AutoRedirect,
+        int CookieBoxId,
+        uint ConnectTimeoutMicroseconds,
+        uint ReceiveTimeoutMicroseconds,
+        uint SendTimeoutMicroseconds,
+        bool AuthEnabled,
+        ulong SslCallback,
+        ulong SslUserArgument)
+    {
+        public static readonly Http2Options Default = new(0, 0, 0, 0, true, 0, 0, 0, 0, false, 0, 0);
+    }
+
+    private sealed record Http2Header(string Name, string Value, uint Mode);
+
+    private sealed record Http2Template(
+        int ContextId,
+        string UserAgent,
+        int HttpVersion,
+        bool AutoProxyConfig,
+        Http2Options Options);
+
+    private sealed record Http2Request(
+        int TemplateId,
+        string Method,
+        string Url,
+        ulong ContentLength,
+        Http2Options Options,
+        Http2Header[] Headers);
+
+    internal readonly record struct Http2OptionsSnapshot(
+        uint MinimumSslVersion,
+        uint SslOptions,
+        ulong RedirectCallback,
+        ulong RedirectUserArgument,
+        bool AutoRedirect,
+        int CookieBoxId,
+        uint ConnectTimeoutMicroseconds,
+        uint ReceiveTimeoutMicroseconds,
+        uint SendTimeoutMicroseconds,
+        bool AuthEnabled,
+        ulong SslCallback,
+        ulong SslUserArgument);
+
+    internal readonly record struct Http2HeaderSnapshot(string Name, string Value, uint Mode);
 
     public static void ResetRuntimeState()
     {
         Contexts.Clear();
         Templates.Clear();
         Requests.Clear();
+        CookieBoxes.Clear();
         _nextContextId = 0;
         _nextTemplateId = 0x1000;
         _nextRequestId = 0x2000;
+        _nextCookieBoxId = 0x3000;
     }
 
     [SysAbiExport(
@@ -119,7 +172,12 @@ public static class Http2Exports
         }
 
         var id = Interlocked.Increment(ref _nextTemplateId);
-        Templates[id] = new Http2Template(contextId, userAgent, httpVersion, autoProxyConfig != 0);
+        Templates[id] = new Http2Template(
+            contextId,
+            userAgent,
+            httpVersion,
+            autoProxyConfig != 0,
+            Http2Options.Default);
         TraceHttp2("create_template", id, unchecked((ulong)contextId), ctx[CpuRegister.Rsi], unchecked((ulong)httpVersion), unchecked((ulong)autoProxyConfig));
         return ctx.SetReturn(id);
     }
@@ -147,7 +205,7 @@ public static class Http2Exports
     public static int Http2CreateRequestWithUrl(CpuContext ctx)
     {
         var templateId = unchecked((int)ctx[CpuRegister.Rdi]);
-        if (!Templates.ContainsKey(templateId))
+        if (!Templates.TryGetValue(templateId, out var template))
         {
             return ctx.SetReturn(Http2ErrorInvalidId);
         }
@@ -159,7 +217,13 @@ public static class Http2Exports
         }
 
         var id = Interlocked.Increment(ref _nextRequestId);
-        Requests[id] = new Http2Request(templateId, method, url, ctx[CpuRegister.Rcx]);
+        Requests[id] = new Http2Request(
+            templateId,
+            method,
+            url,
+            ctx[CpuRegister.Rcx],
+            template.Options,
+            []);
         TraceHttp2("create_request", id, unchecked((ulong)templateId), ctx[CpuRegister.Rsi], ctx[CpuRegister.Rdx], ctx[CpuRegister.Rcx]);
         return ctx.SetReturn(id);
     }
@@ -200,6 +264,100 @@ public static class Http2Exports
                 Requests.TryRemove(request.Key, out _);
             }
         }
+    }
+
+    private static int SetTimeout(
+        CpuContext ctx,
+        Func<Http2Options, uint, Http2Options> update,
+        string timeoutName)
+    {
+        var id = unchecked((int)ctx[CpuRegister.Rdi]);
+        var microseconds = unchecked((uint)ctx[CpuRegister.Rsi]);
+        return TryUpdateOptions(id, options => update(options, microseconds))
+            ? TraceAndReturn(ctx, $"set_{timeoutName}_timeout", id, microseconds, 0, 0, 0)
+            : ctx.SetReturn(Http2ErrorInvalidId);
+    }
+
+    private static bool TryUpdateOptions(int id, Func<Http2Options, Http2Options> update)
+    {
+        while (Templates.TryGetValue(id, out var template))
+        {
+            if (Templates.TryUpdate(id, template with { Options = update(template.Options) }, template))
+            {
+                return true;
+            }
+        }
+
+        while (Requests.TryGetValue(id, out var request))
+        {
+            if (Requests.TryUpdate(id, request with { Options = update(request.Options) }, request))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    internal static bool TryGetOptionsForTests(int id, out Http2OptionsSnapshot snapshot)
+    {
+        var options = Templates.TryGetValue(id, out var template)
+            ? template.Options
+            : Requests.TryGetValue(id, out var request)
+                ? request.Options
+                : null;
+        if (options is null)
+        {
+            snapshot = default;
+            return false;
+        }
+
+        snapshot = new Http2OptionsSnapshot(
+            options.MinimumSslVersion,
+            options.SslOptions,
+            options.RedirectCallback,
+            options.RedirectUserArgument,
+            options.AutoRedirect,
+            options.CookieBoxId,
+            options.ConnectTimeoutMicroseconds,
+            options.ReceiveTimeoutMicroseconds,
+            options.SendTimeoutMicroseconds,
+            options.AuthEnabled,
+            options.SslCallback,
+            options.SslUserArgument);
+        return true;
+    }
+
+    internal static Http2HeaderSnapshot[] GetRequestHeadersForTests(int requestId) =>
+        Requests.TryGetValue(requestId, out var request)
+            ? request.Headers
+                .Select(static header => new Http2HeaderSnapshot(header.Name, header.Value, header.Mode))
+                .ToArray()
+            : [];
+
+    internal static bool TryGetRequestContentLengthForTests(int requestId, out ulong contentLength)
+    {
+        if (Requests.TryGetValue(requestId, out var request))
+        {
+            contentLength = request.ContentLength;
+            return true;
+        }
+
+        contentLength = 0;
+        return false;
+    }
+
+    private static int TraceAndReturn(
+        CpuContext ctx,
+        string operation,
+        int id,
+        ulong arg0,
+        ulong arg1,
+        ulong arg2,
+        ulong arg3)
+    {
+        TraceHttp2(operation, id, arg0, arg1, arg2, arg3);
+        return ctx.SetReturn(0);
     }
 
     private static bool TryReadUtf8Z(CpuContext ctx, ulong address, int maxLength, out string value)
