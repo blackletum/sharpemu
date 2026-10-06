@@ -22,7 +22,6 @@ public static class AudioOut2Exports
     // SceAudioOut2ContextParam: 6 x uint32 + uint32 reserved[10].
     private const int AudioOut2ContextParamSize = 0x40;
     private const int AudioOut2ContextMemorySize = 0x4000;
-    private const int AudioOut2ContextMemoryAlignment = 0x100;
     // Exact object body size. Do not page-align to 64K — the RAGE Main Thread
     // stack-allocates this and a 64K VLA is what planted 0x10000 on the canary.
     private const int SpeakerArrayHeaderSize = 0x40;
@@ -326,8 +325,8 @@ public static class AudioOut2Exports
         // ABI: int32_t sceAudioOut2ContextQueryMemory(const SceAudioOut2ContextParam *pParams,
         // size_t *pMemorySize) — rdi is the param block, rsi is the one and only out pointer.
         var paramAddress = ctx[CpuRegister.Rdi];
-        var memoryInfoAddress = ctx[CpuRegister.Rsi];
-        if (paramAddress == 0 || memoryInfoAddress == 0)
+        var memorySizeAddress = ctx[CpuRegister.Rsi];
+        if (paramAddress == 0 || memorySizeAddress == 0)
         {
             return SetReturn(ctx, AudioOut2ErrorInvalidPointer);
         }
@@ -345,13 +344,12 @@ public static class AudioOut2Exports
             contextMemorySize = checked(0x10000UL + (queueDepth * 0x590UL));
         }
 
-        // The output is a single size_t wherever it lives. Titles keep other locals right after it
-        // (Octopath Traveler II divides by the dword at +12), so nothing else may be written.
         Span<byte> memorySize = stackalloc byte[sizeof(ulong)];
         BinaryPrimitives.WriteUInt64LittleEndian(memorySize, contextMemorySize);
         Console.Error.WriteLine(
-            $"[LOADER][TRACE] audio_out2.context-query-memory out=0x{memoryInfoAddress:X} size=0x{contextMemorySize:X}");
-        return ctx.Memory.TryWrite(memoryInfoAddress, memorySize)
+            $"[LOADER][TRACE] audio_out2.context-query-memory " +
+            $"out=0x{memorySizeAddress:X} size=0x{contextMemorySize:X}");
+        return ctx.Memory.TryWrite(memorySizeAddress, memorySize)
             ? SetReturn(ctx, 0)
             : SetReturn(ctx, AudioOut2ErrorInvalidPointer);
     }
@@ -1585,10 +1583,6 @@ public static class AudioOut2Exports
     private static bool IsDirectMemoryWindowAddress(ulong value) =>
         value >= 0x0000_1400_0000_0000UL && value < 0x0000_1800_0000_0000UL;
 
-    // Only sceAudioOut2ContextQueryMemory and sceAudioOut2ContextGetQueueLevel still
-    // pick an out buffer by host address range; both are left untouched here so they do
-    // not collide with the changes already in flight for them, and these two predicates
-    // go away with the last of their callers.
     private static bool IsGuestStackAddress(ulong value) =>
         value >= 0x0000_7FF0_0000_0000UL && value <= 0x0000_7FFF_FFFF_FFFFUL;
 
