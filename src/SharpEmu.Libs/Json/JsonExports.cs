@@ -202,6 +202,14 @@ public static class JsonExports
     }
 
     [SysAbiExport(
+        Nid = "W72B9ylU2JA",
+        ExportName = "_ZN3sce4Json18InitParameterRtti216setAllocatorRttiEPNS0_14AllocParamRttiEPv",
+        Target = Generation.Gen5,
+        LibraryName = "libSceJson")]
+    public static int InitParameterRtti2SetAllocatorRtti(CpuContext ctx) =>
+        InitParameter2SetAllocator(ctx);
+
+    [SysAbiExport(
         Nid = "Eu95jmqn5Rw",
         ExportName = "_ZN3sce4Json14InitParameter217setFileBufferSizeEm",
         Target = Generation.Gen5,
