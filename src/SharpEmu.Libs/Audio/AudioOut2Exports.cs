@@ -252,6 +252,16 @@ public static class AudioOut2Exports
         return SetReturn(ctx, 0);
     }
 
+    [SysAbiExport(
+        Nid = "v8iOE+j8a5o",
+        ExportName = "sceAudioOut2MasteringSetParam",
+        Target = Generation.Gen5,
+        LibraryName = "libSceAudioOut2")]
+    public static int AudioOut2MasteringSetParam(CpuContext ctx)
+    {
+        return SetReturn(ctx, 0);
+    }
+
     // 3D-audio object latency hint; the host mixer has no object pipeline to
     // tune, but failure here makes Yotei tear down its whole ACM context and
     // abort audio arena bring-up.
