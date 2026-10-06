@@ -98,6 +98,11 @@ public static class AudioOut2Exports
     private static long _pushTraceCount;
     private static long _submitTraceCount;
     private static long _submitSkipTraceCount;
+    private static long _bedWriteTraceCount;
+    private static long _portCreateTraceCount;
+    private static long _portDestroyTraceCount;
+    private static long _portStateTraceCount;
+    private static long _attributeCallTraceCount;
     private static long _attributePcmTraceCount;
 
     private static readonly ConcurrentDictionary<ulong, byte> SpeakerArrays = new();
@@ -432,7 +437,38 @@ public static class AudioOut2Exports
         ExportName = "sceAudioOut2ContextBedWrite",
         Target = Generation.Gen5,
         LibraryName = "libSceAudioOut2")]
-    public static int AudioOut2ContextBedWrite(CpuContext ctx) => SetReturn(ctx, 0);
+    public static int AudioOut2ContextBedWrite(CpuContext ctx)
+    {
+        var n = Interlocked.Increment(ref _bedWriteTraceCount);
+        if (n <= 8 || n % 500 == 0)
+        {
+            TraceAudioOut2(
+                $"context-bed-write#{n} context=0x{ctx[CpuRegister.Rdi]:X} " +
+                $"rsi=0x{ctx[CpuRegister.Rsi]:X} rdx=0x{ctx[CpuRegister.Rdx]:X} " +
+                $"rcx=0x{ctx[CpuRegister.Rcx]:X} r8=0x{ctx[CpuRegister.R8]:X} " +
+                $"r9=0x{ctx[CpuRegister.R9]:X}");
+
+            Span<byte> probe = stackalloc byte[0x40];
+            foreach (var (name, address) in new[]
+            {
+                ("rsi", ctx[CpuRegister.Rsi]),
+                ("rdx", ctx[CpuRegister.Rdx]),
+                ("rcx", ctx[CpuRegister.Rcx]),
+                ("r8", ctx[CpuRegister.R8]),
+                ("r9", ctx[CpuRegister.R9]),
+            })
+            {
+                if (address != 0 && ctx.Memory.TryRead(address, probe))
+                {
+                    TraceAudioOut2(
+                        $"context-bed-write-probe#{n} {name}=0x{address:X} " +
+                        $"bytes={Convert.ToHexString(probe)}");
+                }
+            }
+        }
+
+        return SetReturn(ctx, 0);
+    }
 
     [SysAbiExport(
         Nid = "aII9h5nli9U",
@@ -576,6 +612,41 @@ public static class AudioOut2Exports
         var portHandle = ctx[CpuRegister.Rdi];
         var attributesAddress = ctx[CpuRegister.Rsi];
         var attributeCount = unchecked((uint)ctx[CpuRegister.Rdx]);
+        var attributeStride = unchecked((uint)ctx[CpuRegister.Rcx]);
+        var traceCall = Interlocked.Increment(ref _attributeCallTraceCount);
+        if (traceCall <= 8 && attributesAddress != 0)
+        {
+            Span<byte> descriptorProbe = stackalloc byte[0x40];
+            if (ctx.Memory.TryRead(attributesAddress, descriptorProbe))
+            {
+                TraceAudioOut2(
+                    $"port-set-attributes-raw#{traceCall} port=0x{portHandle:X} " +
+                    $"count={attributeCount} stride={attributeStride} address=0x{attributesAddress:X} " +
+                    $"bytes={Convert.ToHexString(descriptorProbe)}");
+
+                Span<byte> targetProbe = stackalloc byte[0x20];
+                for (var offset = 0; offset <= descriptorProbe.Length - sizeof(ulong); offset += sizeof(ulong))
+                {
+                    var candidate = BinaryPrimitives.ReadUInt64LittleEndian(descriptorProbe[offset..]);
+                    if (!IsWritableOutBuffer(candidate) ||
+                        !ctx.Memory.TryRead(candidate, targetProbe))
+                    {
+                        continue;
+                    }
+
+                    TraceAudioOut2(
+                        $"port-set-attributes-target#{traceCall} offset=0x{offset:X} " +
+                        $"address=0x{candidate:X} bytes={Convert.ToHexString(targetProbe)}");
+                }
+            }
+            else
+            {
+                TraceAudioOut2(
+                    $"port-set-attributes-raw#{traceCall} read-failed address=0x{attributesAddress:X} " +
+                    $"count={attributeCount} stride={attributeStride}");
+            }
+        }
+
         if (!Ports.TryGetValue(portHandle, out var port))
         {
             return SetReturn(ctx, 0);
@@ -719,6 +790,14 @@ public static class AudioOut2Exports
             Span<byte> param = stackalloc byte[PortParamSize];
             if (ctx.Memory.TryRead(paramAddress, param))
             {
+                if (traceCreate <= 8 || traceCreate % 500 == 0)
+                {
+                    TraceAudioOut2(
+                        $"port-create-param#{traceCreate} context=0x{contextHandle:X} " +
+                        $"address=0x{paramAddress:X} out=0x{outPortAddress:X} " +
+                        $"bytes={Convert.ToHexString(param)}");
+                }
+
                 portType = BinaryPrimitives.ReadUInt16LittleEndian(param);
                 dataFormat = BinaryPrimitives.ReadUInt32LittleEndian(param[0x04..]);
                 var freq = BinaryPrimitives.ReadUInt32LittleEndian(param[0x08..]);
@@ -1031,7 +1110,17 @@ public static class AudioOut2Exports
         LibraryName = "libSceAudioOut2")]
     public static int AudioOut2PortDestroy(CpuContext ctx)
     {
-        Ports.TryRemove(ctx[CpuRegister.Rdi], out _);
+        var portHandle = ctx[CpuRegister.Rdi];
+        var removed = Ports.TryRemove(portHandle, out var port);
+        var n = Interlocked.Increment(ref _portDestroyTraceCount);
+        if (n <= 8 || n % 500 == 0)
+        {
+            TraceAudioOut2(
+                $"port-destroy#{n} handle=0x{portHandle:X} removed={removed} " +
+                $"context=0x{port?.ContextHandle ?? 0:X} pcm=0x{port?.PcmAddress ?? 0:X} " +
+                $"remaining={Ports.Count}");
+        }
+
         return SetReturn(ctx, 0);
     }
 
