@@ -769,13 +769,16 @@ public static class AudioOut2Exports
             return SetReturn(ctx, AudioOut2ErrorInvalidPointer);
         }
 
+        if (IsGuestStackAddress(stateAddress) &&
+            !(AllowStackOut("portstate") && Ports.ContainsKey(portHandle)))
+        {
+            TraceAudioOut2(
+                $"port-get-state skip-stack handle=0x{portHandle:X} state=0x{stateAddress:X}");
+            return SetReturn(ctx, 0);
+        }
+
         Span<byte> state = stackalloc byte[PortStateSize];
         state.Clear();
-        //   +0x00 u16 output         = OUTPUT_PRIMARY (1)
-        //   +0x02 u8  numChannels    = from port format when known, else 2
-        //   +0x04 s16 volume         = -1 (not applicable outside PADSPK)
-        //   +0x06 u16 rerouteCounter = 0 (the host mixer never reroutes)
-        //   +0x08 u32 flags          = 0 (no 3D, not mono-forced)
         byte channels = 2;
         if (Ports.TryGetValue(portHandle, out var port) &&
             TryDecodeDataFormat(port.DataFormat, out var decodedChannels, out _, out _))
@@ -785,15 +788,21 @@ public static class AudioOut2Exports
 
         BinaryPrimitives.WriteUInt16LittleEndian(state[0x00..], PortStateOutputConnectedPrimary);
         state[0x02] = channels;
-        BinaryPrimitives.WriteInt16LittleEndian(state[0x04..], -1);
+        BinaryPrimitives.WriteInt16LittleEndian(state[0x04..], 127);
 
         if (!ctx.Memory.TryWrite(stateAddress, state))
         {
             return SetReturn(ctx, AudioOut2ErrorInvalidPointer);
         }
 
-        TraceAudioOut2(
-            $"port-get-state handle=0x{portHandle:X} state=0x{stateAddress:X} bytes=0x{PortStateSize:X}");
+        var traceState = Interlocked.Increment(ref _portStateTraceCount);
+        if (traceState <= 8 || traceState % 500 == 0)
+        {
+            TraceAudioOut2(
+                $"port-get-state#{traceState} handle=0x{portHandle:X} state=0x{stateAddress:X} " +
+                $"bytes={Convert.ToHexString(state)}");
+        }
+
         return SetReturn(ctx, 0);
     }
 
