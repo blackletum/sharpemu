@@ -241,6 +241,7 @@ public static class AudioOut2Exports
     private static string SecondaryBackendName = "none";
     private static ulong PrimaryContextHandle;
     private static readonly object HostSubmitGate = new();
+    private static Func<uint, IHostAudioStream?>? _streamFactoryForTests;
 
     [SysAbiExport(
         Nid = "g2tViFIohHE",
@@ -1212,13 +1213,20 @@ public static class AudioOut2Exports
                 {
                     try
                     {
-                        var audio = HostPlatform.Current.Audio;
-                        // Deeper host queue than classic AudioOut: FMOD's bursty
-                        // AudioOut2 Push pattern underran a 32 KiB (~171 ms) bed.
-                        PrimaryBackend = audio.OpenStereoPcm16Stream(
-                            context.Frequency,
-                            maxQueuedPcmBytes: 128 * 1024);
-                        PrimaryBackendName = audio.BackendName + "-primary";
+                        var streamFactory = Volatile.Read(ref _streamFactoryForTests);
+                        if (streamFactory is not null)
+                        {
+                            PrimaryBackend = streamFactory(context.Frequency);
+                            PrimaryBackendName = PrimaryBackend is null ? "silent" : "test-primary";
+                        }
+                        else
+                        {
+                            var audio = HostPlatform.Current.Audio;
+                            PrimaryBackend = audio.OpenStereoPcm16Stream(
+                                context.Frequency,
+                                maxQueuedPcmBytes: 128 * 1024);
+                            PrimaryBackendName = audio.BackendName + "-primary";
+                        }
                     }
                     catch (Exception exception)
                     {
@@ -1236,11 +1244,20 @@ public static class AudioOut2Exports
             {
                 try
                 {
-                    var audio = HostPlatform.Current.Audio;
-                    SecondaryBackend = audio.OpenStereoPcm16Stream(
-                        context.Frequency,
-                        maxQueuedPcmBytes: 128 * 1024);
-                    SecondaryBackendName = audio.BackendName + "-secondary";
+                    var streamFactory = Volatile.Read(ref _streamFactoryForTests);
+                    if (streamFactory is not null)
+                    {
+                        SecondaryBackend = streamFactory(context.Frequency);
+                        SecondaryBackendName = SecondaryBackend is null ? "silent" : "test-secondary";
+                    }
+                    else
+                    {
+                        var audio = HostPlatform.Current.Audio;
+                        SecondaryBackend = audio.OpenStereoPcm16Stream(
+                            context.Frequency,
+                            maxQueuedPcmBytes: 128 * 1024);
+                        SecondaryBackendName = audio.BackendName + "-secondary";
+                    }
                 }
                 catch (Exception exception)
                 {
