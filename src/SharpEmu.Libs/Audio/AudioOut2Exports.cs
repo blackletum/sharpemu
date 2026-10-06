@@ -36,6 +36,17 @@ public static class AudioOut2Exports
     private const int SpeakerArrayDivisorFieldOffset = 0x34;
     private const int SpeakerArrayResultFieldOffset = 0x3C;
     private const uint SpeakerArrayDefaultDivisor = 1;
+    private const int SpeakerArrayCoefficientBytes = 0x400;
+
+    private static readonly string _stackOutBufferModes =
+        Environment.GetEnvironmentVariable("SHARPEMU_AUDIO_OUT2_STACK_WRITES") ?? "1";
+
+    private static bool AllowStackOut(string which) =>
+        string.Equals(_stackOutBufferModes, "1", StringComparison.Ordinal) ||
+        _stackOutBufferModes
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Contains(which, StringComparer.OrdinalIgnoreCase);
+
     // SceAudioOut2SpeakerArrayParam: Position* (0x00), uint uiNumSpeakers (0x08),
     // uint8 ucIs3d (0x0C), void* pBuffer (0x10), size_t szSize (0x18),
     // SceAudioOut2VbapCorrectionParam sVbapCorrection (0x20, 0x20 bytes).
@@ -691,10 +702,10 @@ public static class AudioOut2Exports
     {
         // ABI: sceAudioOut2PortCreate(SceAudioOut2ContextHandle hCtx,
         // const SceAudioOut2PortParam *pParams, SceAudioOut2PortHandle *phVPort) —
-        // rdx is the only out pointer.
         var contextHandle = ctx[CpuRegister.Rdi];
         var paramAddress = ctx[CpuRegister.Rsi];
-        var outPortAddress = ctx[CpuRegister.Rdx];
+        var outPortAddress = ResolveGuestOutBuffer(ctx[CpuRegister.Rdx], ctx[CpuRegister.Rcx]);
+        var traceCreate = Interlocked.Increment(ref _portCreateTraceCount);
         if (outPortAddress == 0)
         {
             return SetReturn(ctx, AudioOut2ErrorInvalidPointer);
@@ -1580,6 +1591,16 @@ public static class AudioOut2Exports
     // go away with the last of their callers.
     private static bool IsGuestStackAddress(ulong value) =>
         value >= 0x0000_7FF0_0000_0000UL && value <= 0x0000_7FFF_FFFF_FFFFUL;
+
+    private static ulong ResolveGuestOutBuffer(ulong primary, ulong secondary)
+    {
+        if (IsWritableOutBuffer(primary))
+        {
+            return primary;
+        }
+
+        return IsWritableOutBuffer(secondary) ? secondary : 0;
+    }
 
     private static bool IsWritableOutBuffer(ulong value) =>
         value != 0 &&
