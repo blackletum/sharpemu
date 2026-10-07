@@ -92,6 +92,8 @@ public static partial class AgcExports
             return SetReturn(ctx, OrbisGen2Result.ORBIS_GEN2_ERROR_INVALID_ARGUMENT);
         }
 
+        Gpu.ShaderCache.ShaderInventory.Capture(ctx, headerAddress, codeAddress);
+
         if (!RelocatePointerField(ctx, headerAddress + ShaderCxRegistersOffset) ||
             !RelocatePointerField(ctx, headerAddress + ShaderShRegistersOffset) ||
             !RelocatePointerField(ctx, headerAddress + ShaderUserDataOffset) ||
