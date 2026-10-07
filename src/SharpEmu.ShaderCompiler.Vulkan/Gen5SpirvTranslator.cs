@@ -3144,9 +3144,22 @@ public static partial class Gen5SpirvTranslator
             }
 
             var specialized = info.Buffers[bindingIndex];
-            var stride = UInt(specialized.PackedStride & 0x3FFF);
             var descriptorFormat = specialized.DescriptorFormat;
-            var descriptorWord3 = UInt((specialized.DescriptorFormat << 12) | (specialized.DescriptorSwizzle & 0xFFF));
+            uint stride;
+            uint descriptorWord3;
+            if (_portableBufferWords != 0)
+            {
+                var portableDword = bindingIndex * PortableBufferWord.DwordCount;
+                stride = Load(_uintType, PortableBufferWordPointer(portableDword));
+                descriptorWord3 = PortableBufferWord.ReadsFormatAtRuntime(specialized)
+                    ? Load(_uintType, PortableBufferWordPointer(portableDword + 1))
+                    : UInt((specialized.DescriptorFormat << 12) | (specialized.DescriptorSwizzle & 0xFFF));
+            }
+            else
+            {
+                stride = UInt(specialized.PackedStride & 0x3FFF);
+                descriptorWord3 = UInt((specialized.DescriptorFormat << 12) | (specialized.DescriptorSwizzle & 0xFFF));
+            }
 
             var scalarOffset = instruction.Sources.Count > 2
                 ? GetRawSource(instruction, 2)
