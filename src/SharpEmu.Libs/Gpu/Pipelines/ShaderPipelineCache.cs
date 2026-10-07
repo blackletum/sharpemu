@@ -210,7 +210,7 @@ internal sealed partial class ShaderPipelineCache : IShaderPipelineProvider
     }
 
     // One past the highest parameter location the pixel program reads, resolved as its translator does.
-    private static uint ReadVertexOutputCount(Gen5ShaderProgram pixelProgram, PixelInputInfo info)
+    internal static uint ReadVertexOutputCount(Gen5ShaderProgram pixelProgram, PixelInputInfo info)
     {
         var attributes = pixelProgram.Instructions
             .Select(static instruction => instruction.Control)
@@ -235,7 +235,7 @@ internal sealed partial class ShaderPipelineCache : IShaderPipelineProvider
         return Gen5PixelInputMapping.ResolveLocations(controls, attributes).Max() + 1;
     }
 
-    private static uint InterpolatedAttributeCount(Gen5ShaderProgram program)
+    internal static uint InterpolatedAttributeCount(Gen5ShaderProgram program)
     {
         var maxAttribute = -1;
         foreach (var instruction in program.Instructions)
