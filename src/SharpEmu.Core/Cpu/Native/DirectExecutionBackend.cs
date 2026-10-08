@@ -1925,6 +1925,10 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 		{
 			return HasUsableLleLibcExport("tcVi5SivF7Q", "sprintf");
 		}
+		if (IsLibcFileObjectExport(exportName))
+		{
+			return HasUsableLleLibcExport(ComputePsNid(exportName), exportName);
+		}
 		if (string.Equals(value, "0", StringComparison.Ordinal))
 		{
 			return true;
