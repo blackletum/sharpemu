@@ -21,6 +21,42 @@ internal static class GuestRedZonePatcher
     private const ulong MaximumRelativeJumpDistance = 0x7FFF_FFFF;
     private const int MaximumJumpTableEntries = 4096;
     private const int MaximumJumpTableSetupInstructions = 6;
+    private const ulong LargeExecutableBytes = 32UL << 20;
+    private static readonly TimeSpan ProgressInterval = TimeSpan.FromSeconds(2);
+
+    private sealed class Progress(string hostName, string phase, int total)
+    {
+        private readonly long _started = System.Diagnostics.Stopwatch.GetTimestamp();
+        private long _lastReport = System.Diagnostics.Stopwatch.GetTimestamp();
+
+        public void Report(int done)
+        {
+            var now = System.Diagnostics.Stopwatch.GetTimestamp();
+            if (System.Diagnostics.Stopwatch.GetElapsedTime(_lastReport, now) < ProgressInterval)
+            {
+                return;
+            }
+
+            _lastReport = now;
+            Console.Error.WriteLine(
+                $"[LOADER] {hostName} red-zone {phase}: {done}/{total} ({(total == 0 ? 100 : done * 100L / total)}%) " +
+                $"after {System.Diagnostics.Stopwatch.GetElapsedTime(_started, now).TotalSeconds:F0} s");
+        }
+    }
+
+    private static ulong ExecutableBytes(IReadOnlyList<ProgramHeader> programHeaders)
+    {
+        var bytes = 0UL;
+        foreach (var header in programHeaders)
+        {
+            if (header.HeaderType == ProgramHeaderType.Load && (header.Flags & ProgramHeaderFlags.Execute) != 0)
+            {
+                bytes += header.FileSize;
+            }
+        }
+
+        return bytes;
+    }
 
     internal enum SpanRefusal
     {
@@ -65,8 +101,18 @@ internal static class GuestRedZonePatcher
             return default;
         }
 
+        var executableBytes = ExecutableBytes(programHeaders);
+        var large = executableBytes >= LargeExecutableBytes;
+        if (large)
+        {
+            Console.Error.WriteLine(
+                $"[LOADER] {hostName} red-zone patch: scanning {functionStarts.Length} functions in {executableBytes >> 20} MB of code; " +
+                "a large executable takes a while before the game window opens.");
+        }
+
         var sites = CollectPatchSites(
-            memory, programHeaders, imageBase, functionStarts, protectRedZone, splitVectorStores, rewriteSha, out var scan);
+            memory, programHeaders, imageBase, functionStarts, protectRedZone, splitVectorStores, rewriteSha, out var scan,
+            large ? new Progress(hostName, "scan", functionStarts.Length) : null);
         sites.Sort(static (left, right) => left.Address.CompareTo(right.Address));
         if (sites.Count == 0)
         {
@@ -98,8 +144,10 @@ internal static class GuestRedZonePatcher
         var patched = 0;
         var failed = 0;
         var previousEnd = 0UL;
+        var patchProgress = large ? new Progress(hostName, "patch", sites.Count) : null;
         foreach (var site in sites)
         {
+            patchProgress?.Report(patched + failed);
             // Sites are produced in increasing address order. Patching two that
             // overlap would write one jump over another and send the trampoline
             // into whatever follows, so refuse rather than corrupt guest code.
@@ -155,9 +203,11 @@ internal static class GuestRedZonePatcher
         bool protectRedZone,
         bool splitVectorStores,
         bool rewriteSha,
-        out PatchResult result)
+        out PatchResult result,
+        Progress? progress = null)
     {
         var sites = new List<PatchSite>();
+        var scannedFunctions = 0;
         var functionCount = 0;
         var redZoneFunctionCount = 0;
         var instructionCount = 0;
@@ -196,6 +246,7 @@ internal static class GuestRedZonePatcher
 
             for (var functionIndex = 0; functionIndex < segmentFunctions.Length; functionIndex++)
             {
+                progress?.Report(scannedFunctions++);
                 var functionStart = segmentFunctions[functionIndex];
                 var functionEnd = functionIndex + 1 < segmentFunctions.Length
                     ? segmentFunctions[functionIndex + 1]
