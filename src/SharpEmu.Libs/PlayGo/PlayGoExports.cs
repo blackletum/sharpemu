@@ -231,7 +231,7 @@ public static class PlayGoExports
             chunkIds = _metadata.ChunkIds;
         }
 
-        var availableEntries = chunkIds.Length == 0 ? 1u : (uint)chunkIds.Length;
+        var availableEntries = (uint)chunkIds.Length;
         if (outChunkIdList == 0)
         {
             TracePlayGo($"get_chunk_id count_only entries={availableEntries} out_entries=0x{outEntries:X16}");
@@ -249,7 +249,7 @@ public static class PlayGoExports
 
         for (uint i = 0; i < entriesToWrite; i++)
         {
-            var chunkId = chunkIds.Length == 0 ? (ushort)0 : chunkIds[i];
+            var chunkId = chunkIds[i];
             if (!ctx.TryWriteUInt16(outChunkIdList + (i * sizeof(ushort)), chunkId))
             {
                 return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
@@ -685,10 +685,7 @@ public static class PlayGoExports
         {
             // No app0 override to probe for sidecar files: same fully-installed
             // single-chunk fallback as below, or scePlayGoOpen fails fatally.
-            return new PlayGoMetadata(
-                true,
-                [(ushort)0],
-                PlayGoChunkIdKnowledge.Authoritative);
+            return CreateBaseChunkMetadata(PlayGoChunkIdKnowledge.Authoritative);
         }
 
         var playGoDat = Path.Combine(app0Root, "sce_sys", "playgo-chunk.dat");
@@ -721,9 +718,7 @@ public static class PlayGoExports
         return new PlayGoMetadata(
             true,
             chunkIds,
-            chunkIds.Length == 0
-                ? PlayGoChunkIdKnowledge.Unknown
-                : PlayGoChunkIdKnowledge.Authoritative);
+            PlayGoChunkIdKnowledge.Authoritative);
     }
 
     // Chunk ids for a title that ships no PlayGo sidecar, taken from the
@@ -808,6 +803,15 @@ public static class PlayGoExports
 
     private static void TracePlayGo(string message)
     {
+        if (chunkIds.Length == 0)
+        {
+            TracePlayGo("metadata_has_no_chunk_definitions; installed chunk ids unknown");
+            return new PlayGoMetadata(
+                true,
+                Array.Empty<ushort>(),
+                PlayGoChunkIdKnowledge.Unknown);
+        }
+
         if (string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_LOG_PLAYGO"), "1", StringComparison.Ordinal))
         {
             Console.Error.WriteLine($"[LOADER][TRACE] playgo.{message}");
@@ -816,6 +820,12 @@ public static class PlayGoExports
 
     private static void TracePlayGoLocus(CpuContext ctx, uint entries, ulong chunkIds, ulong outLoci)
     {
+    private static PlayGoMetadata CreateBaseChunkMetadata(PlayGoChunkIdKnowledge knowledge) =>
+        new(
+            true,
+            [(ushort)0],
+            knowledge);
+
         if (!string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_LOG_PLAYGO"), "1", StringComparison.Ordinal))
         {
             return;
