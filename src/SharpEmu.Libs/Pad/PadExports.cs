@@ -45,6 +45,9 @@ public static class PadExports
     private static PadState _cachedInputState;
 
     private static bool _initialized;
+    private static readonly bool LogPadState =
+        string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_LOG_PAD_STATE"), "1", StringComparison.Ordinal);
+    private static long _loggedPadSignature = -1;
     // Motion data is reported until a title turns it off: Astro Bot reads it for
     // shake/tilt without ever importing scePadSetMotionSensorState.
     private static int _motionSensorEnabled = 1;
@@ -62,9 +65,6 @@ public static class PadExports
         return ctx.SetReturn(0);
     }
 
-    [SysAbiExport(
-        Nid = "xk0AcarP3V4",
-        ExportName = "scePadOpen",
     #pragma warning disable SHEM006
     [SysAbiExport(
         Nid = "n3kSX62fgNo",
@@ -77,6 +77,9 @@ public static class PadExports
     }
     #pragma warning restore SHEM006
 
+    [SysAbiExport(
+        Nid = "xk0AcarP3V4",
+        ExportName = "scePadOpen",
         Target = Generation.Gen4 | Generation.Gen5,
         LibraryName = "libScePad")]
     public static int PadOpen(CpuContext ctx) => PadOpenCore(ctx, extended: false);
@@ -775,6 +778,17 @@ public static class PadExports
         if (IsAutoCrossActive())
         {
             buttons |= 0x4000;
+        }
+
+        if (LogPadState)
+        {
+            var signature = ((ulong)buttons << 8) | ((ulong)(acceptsKeyboardInput ? 1 : 0) << 4) | (uint)gamepadCount;
+            if (Interlocked.Exchange(ref _loggedPadSignature, (long)signature) != (long)signature)
+            {
+                Console.Error.WriteLine(
+                    $"[LOADER][INFO] pad state: focused={acceptsKeyboardInput} gamepads={gamepadCount} buttons=0x{buttons:X8} " +
+                    $"left={leftX},{leftY} thread={Environment.CurrentManagedThreadId}");
+            }
         }
 
         _cachedInputState = new PadState(
