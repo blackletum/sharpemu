@@ -11,6 +11,7 @@ namespace SharpEmu.Libs.Pad;
 public static class PadExports
 {
     private const int OrbisPadErrorInvalidHandle = unchecked((int)0x80920003);
+    private const int OrbisPadErrorInvalidArgument = unchecked((int)0x80920001);
     private const int OrbisPadErrorAlreadyOpened = unchecked((int)0x80920004);
     private const int OrbisPadErrorNotInitialized = unchecked((int)0x80920005);
     private const int OrbisPadErrorDeviceNotConnected = unchecked((int)0x80920007);
@@ -352,6 +353,57 @@ public static class PadExports
         BinaryPrimitives.WriteInt32LittleEndian(information[0x00..], 0);
 
         return ctx.Memory.TryWrite(informationAddress, information)
+            ? ctx.SetReturn(0)
+            : ctx.SetReturn((int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT);
+    }
+
+    [SysAbiExport(
+        Nid = "IHPqcbc0zCA",
+        ExportName = "scePadDeviceClassParseData",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libScePad")]
+    public static int PadDeviceClassParseData(CpuContext ctx)
+    {
+        const int deviceClassDataSize = 24;
+        const int deviceUniqueDataLengthOffset = 0x6B;
+        const int deviceUniqueDataOffset = 0x6C;
+        const int maximumDeviceUniqueDataLength = 12;
+
+        var handle = unchecked((int)ctx[CpuRegister.Rdi]);
+        var padDataAddress = ctx[CpuRegister.Rsi];
+        var classDataAddress = ctx[CpuRegister.Rdx];
+        if (!IsOpenPadHandle(handle))
+        {
+            return ctx.SetReturn(OrbisPadErrorInvalidHandle);
+        }
+
+        if (padDataAddress == 0 || classDataAddress == 0)
+        {
+            return ctx.SetReturn(OrbisPadErrorInvalidArgument);
+        }
+
+        Span<byte> padData = stackalloc byte[PadDataSize];
+        if (!ctx.Memory.TryRead(padDataAddress, padData))
+        {
+            return ctx.SetReturn((int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT);
+        }
+
+        Span<byte> classData = stackalloc byte[deviceClassDataSize];
+        classData.Clear();
+        classData[0x04] = padData[0x4C] != 0 ? (byte)1 : (byte)0;
+
+        var uniqueDataLength = Math.Min(
+            (int)padData[deviceUniqueDataLengthOffset],
+            maximumDeviceUniqueDataLength);
+        if (uniqueDataLength > 0)
+        {
+            BinaryPrimitives.WriteInt32LittleEndian(classData[0x00..], -1);
+            classData[0x08] = (byte)uniqueDataLength;
+            padData.Slice(deviceUniqueDataOffset, uniqueDataLength)
+                .CopyTo(classData.Slice(0x0C, uniqueDataLength));
+        }
+
+        return ctx.Memory.TryWrite(classDataAddress, classData)
             ? ctx.SetReturn(0)
             : ctx.SetReturn((int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT);
     }
