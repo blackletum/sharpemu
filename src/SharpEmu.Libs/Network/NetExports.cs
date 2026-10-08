@@ -761,12 +761,6 @@ public static class NetExports
     }
 
     [SysAbiExport(
-        Nid = "dgJBaeJnGpo",
-        ExportName = "sceNetPoolCreate",
-        Target = Generation.Gen4 | Generation.Gen5,
-        LibraryName = "libSceNet")]
-    public static int NetPoolCreate(CpuContext ctx)
-    [SysAbiExport(
         Nid = "SF47kB2MNTo",
         ExportName = "sceNetEpollCreate",
         Target = Generation.Gen4 | Generation.Gen5,
@@ -1051,6 +1045,12 @@ public static class NetExports
         return ctx.SetReturn(0);
     }
 
+    [SysAbiExport(
+        Nid = "dgJBaeJnGpo",
+        ExportName = "sceNetPoolCreate",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libSceNet")]
+    public static int NetPoolCreate(CpuContext ctx)
     {
         var nameAddress = ctx[CpuRegister.Rdi];
         var size = unchecked((int)ctx[CpuRegister.Rsi]);
@@ -1144,6 +1144,53 @@ public static class NetExports
         // dispatch status without going through SetReturn, which would overwrite Rax with 0.
         ctx[CpuRegister.Rax] = BinaryPrimitives.ReverseEndianness(value);
         return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(
+        Nid = "v6M4txecCuo",
+        ExportName = "sceNetEtherNtostr",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libSceNet")]
+    public static int NetEtherNtostr(CpuContext ctx)
+    {
+        const int EtherStringLength = 18;
+        const string HexDigits = "0123456789abcdef";
+
+        var address = ctx[CpuRegister.Rdi];
+        var destination = ctx[CpuRegister.Rsi];
+        var destinationLength = ctx[CpuRegister.Rdx];
+        if (address == 0 || destination == 0 || destinationLength < EtherStringLength)
+        {
+            return SetNetError(ctx, NetErrorInvalidArgument, NetErrnoInvalidArgument);
+        }
+
+        Span<byte> macAddress = stackalloc byte[6];
+        if (!ctx.Memory.TryRead(address, macAddress))
+        {
+            return SetNetError(ctx, NetErrorInvalidArgument, NetErrnoInvalidArgument);
+        }
+
+        Span<byte> text = stackalloc byte[EtherStringLength];
+        for (var index = 0; index < macAddress.Length; index++)
+        {
+            var value = macAddress[index];
+            var offset = index * 3;
+            text[offset] = unchecked((byte)HexDigits[value >> 4]);
+            text[offset + 1] = unchecked((byte)HexDigits[value & 0xF]);
+            if (index != macAddress.Length - 1)
+            {
+                text[offset + 2] = (byte)':';
+            }
+        }
+        text[^1] = 0;
+
+        if (!ctx.Memory.TryWrite(destination, text))
+        {
+            return SetNetError(ctx, NetErrorInvalidArgument, NetErrnoInvalidArgument);
+        }
+
+        TraceNet("ether_ntostr", 0, address, destination, destinationLength);
+        return ctx.SetReturn(0);
     }
 
     [SysAbiExport(
@@ -1355,6 +1402,39 @@ public static class NetExports
         return true;
     }
 
+    private static bool TryReadNetEpollEvent(
+        CpuContext ctx,
+        ulong address,
+        out NetEpollEvent epollEvent)
+    {
+        Span<byte> bytes = stackalloc byte[NetEpollEventSize];
+        if (!ctx.Memory.TryRead(address, bytes))
+        {
+            epollEvent = default;
+            return false;
+        }
+
+        epollEvent = new NetEpollEvent(
+            BinaryPrimitives.ReadUInt32LittleEndian(bytes),
+            BinaryPrimitives.ReadUInt64LittleEndian(bytes[16..]));
+        return true;
+    }
+
+    private static bool TryWriteNetEpollEvent(
+        CpuContext ctx,
+        ulong address,
+        uint events,
+        int socketId,
+        ulong data)
+    {
+        Span<byte> bytes = stackalloc byte[NetEpollEventSize];
+        bytes.Clear();
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes, events);
+        BinaryPrimitives.WriteUInt64LittleEndian(bytes[8..], unchecked((uint)socketId));
+        BinaryPrimitives.WriteUInt64LittleEndian(bytes[16..], data);
+        return ctx.Memory.TryWrite(address, bytes);
+    }
+
     [SysAbiExport(
         Nid = "8Kcp5d-q1Uo",
         ExportName = "sceNetInetPton",
@@ -1407,39 +1487,6 @@ public static class NetExports
         Target = Generation.Gen4 | Generation.Gen5,
         LibraryName = "libSceNet")]
     public static int NetInetNtop(CpuContext ctx) => PosixInetNtop(ctx);
-
-    private static bool TryReadNetEpollEvent(
-        CpuContext ctx,
-        ulong address,
-        out NetEpollEvent epollEvent)
-    {
-        Span<byte> bytes = stackalloc byte[NetEpollEventSize];
-        if (!ctx.Memory.TryRead(address, bytes))
-        {
-            epollEvent = default;
-            return false;
-        }
-
-        epollEvent = new NetEpollEvent(
-            BinaryPrimitives.ReadUInt32LittleEndian(bytes),
-            BinaryPrimitives.ReadUInt64LittleEndian(bytes[16..]));
-        return true;
-    }
-
-    private static bool TryWriteNetEpollEvent(
-        CpuContext ctx,
-        ulong address,
-        uint events,
-        int socketId,
-        ulong data)
-    {
-        Span<byte> bytes = stackalloc byte[NetEpollEventSize];
-        bytes.Clear();
-        BinaryPrimitives.WriteUInt32LittleEndian(bytes, events);
-        BinaryPrimitives.WriteUInt64LittleEndian(bytes[8..], unchecked((uint)socketId));
-        BinaryPrimitives.WriteUInt64LittleEndian(bytes[16..], data);
-        return ctx.Memory.TryWrite(address, bytes);
-    }
 
     private static void TraceNet(string operation, int id, ulong arg0, ulong arg1, ulong arg2)
     {
