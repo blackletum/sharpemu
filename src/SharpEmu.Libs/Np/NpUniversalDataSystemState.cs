@@ -90,8 +90,7 @@ internal static class NpUniversalDataSystemState
         {
             if (!_initialized)
             {
-                context = 0;
-                return false;
+                _initialized = true;
             }
 
             context = NextPositiveId(ref _nextContext);
