@@ -608,6 +608,39 @@ public static partial class TileGeometry
         return true;
     }
 
+    public static bool TryGetDccSize(
+        uint width,
+        uint height,
+        uint slices,
+        uint bytesPerElement,
+        uint levels,
+        GuestTileMode tile,
+        out TileSizeAndAlignment totalSize,
+        uint fragmentsLog2 = 0)
+    {
+        totalSize = default;
+        if (width == 0 || height == 0 || slices == 0 || levels != 1 || fragmentsLog2 != 0 ||
+            !BitOperations.IsPow2(bytesPerElement) || bytesPerElement > 16 ||
+            tile is not (GuestTileMode.RenderTarget or GuestTileMode.Depth))
+        {
+            return false;
+        }
+
+        var coverageBits = 20 - BitOperations.TrailingZeroCount(bytesPerElement);
+        var blockWidth = 1u << ((coverageBits + 1) / 2);
+        var blockHeight = 1u << (coverageBits / 2);
+        var blocksX = ((ulong)width + blockWidth - 1) / blockWidth;
+        var blocksY = ((ulong)height + blockHeight - 1) / blockHeight;
+        var blocks = blocksX * blocksY;
+        if (blocks == 0 || blocks > uint.MaxValue / 4096u / slices)
+        {
+            return false;
+        }
+
+        totalSize = new TileSizeAndAlignment((uint)(blocks * slices * 4096u), 4096);
+        return true;
+    }
+
     public static bool TryGetRenderTargetMipLayout(uint width, uint height, uint pitch, uint bytesPerElement, uint levels, out TileSizeAndAlignment totalSize, TileLevelSpan[]? levelSpans, TilePaddedSize[]? paddedSizes)
     {
         totalSize = default;
