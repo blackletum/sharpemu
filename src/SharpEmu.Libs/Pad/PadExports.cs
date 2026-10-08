@@ -347,7 +347,7 @@ public static class PadExports
         // (DualSense). We emulate no special peripheral (guitar/drums/wheel), so
         // the class-data union stays zeroed — the guest treats it as a plain
         // controller with no extended capabilities.
-        Span<byte> information = stackalloc byte[0x20];
+        Span<byte> information = stackalloc byte[0x14];
         information.Clear();
         BinaryPrimitives.WriteInt32LittleEndian(information[0x00..], 0);
 
