@@ -715,11 +715,26 @@ public static class PlayGoExports
         }
 
         var chunkIds = LoadChunkIds(chunkDefsXml);
+        if (chunkIds.Length == 0)
+        {
+            TracePlayGo("metadata_has_no_chunk_definitions; installed chunk ids unknown");
+            return new PlayGoMetadata(
+                true,
+                Array.Empty<ushort>(),
+                PlayGoChunkIdKnowledge.Unknown);
+        }
+
         return new PlayGoMetadata(
             true,
             chunkIds,
             PlayGoChunkIdKnowledge.Authoritative);
     }
+
+    private static PlayGoMetadata CreateBaseChunkMetadata(PlayGoChunkIdKnowledge knowledge) =>
+        new(
+            true,
+            [(ushort)0],
+            knowledge);
 
     // Chunk ids for a title that ships no PlayGo sidecar, taken from the
     // pakchunk<N>-<platform>.pak files on disk. Chunk 0 is always included: it
@@ -803,15 +818,6 @@ public static class PlayGoExports
 
     private static void TracePlayGo(string message)
     {
-        if (chunkIds.Length == 0)
-        {
-            TracePlayGo("metadata_has_no_chunk_definitions; installed chunk ids unknown");
-            return new PlayGoMetadata(
-                true,
-                Array.Empty<ushort>(),
-                PlayGoChunkIdKnowledge.Unknown);
-        }
-
         if (string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_LOG_PLAYGO"), "1", StringComparison.Ordinal))
         {
             Console.Error.WriteLine($"[LOADER][TRACE] playgo.{message}");
@@ -820,12 +826,6 @@ public static class PlayGoExports
 
     private static void TracePlayGoLocus(CpuContext ctx, uint entries, ulong chunkIds, ulong outLoci)
     {
-    private static PlayGoMetadata CreateBaseChunkMetadata(PlayGoChunkIdKnowledge knowledge) =>
-        new(
-            true,
-            [(ushort)0],
-            knowledge);
-
         if (!string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_LOG_PLAYGO"), "1", StringComparison.Ordinal))
         {
             return;
