@@ -190,10 +190,8 @@ public sealed class GuestRedZonePatcherTests
         Assert.Equal(expected, ((delegate* unmanaged<ulong, ulong>)image.Base)(image.Base));
     }
 
-    // Demon's Souls FUN_800ad8fe0: a two-byte AND whose successor is a branch
-    // target is patched by starting the span at the instruction before it.
     [Fact]
-    public unsafe void PatchesShortAccessBeforeBranchTargetFromThePreviousInstruction()
+    public unsafe void LeavesShortAccessUnchangedWhenNextInstructionIsBranchTarget()
     {
         if (RuntimeInformation.ProcessArchitecture != Architecture.X64)
             return;
@@ -212,10 +210,17 @@ public sealed class GuestRedZonePatcherTests
         ];
 
         using var image = PatchedImage.Create(function, [(0x2000, 7u)]);
+        Assert.Equal(0, image.Result.PatchedSites);
         if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
         {
-            Assert.Equal(1, image.Result.PatchedSites);
-            Assert.Equal(0xE9, image.ReadByte(22));
+            Assert.Equal(1, image.Result.RedZoneFunctions);
+            Assert.Equal(1, image.Result.UnrelocatableSites);
+            Assert.Equal(1, image.Result.BranchTargetRefusals);
+        }
+
+        for (var index = 0; index < function.Length; index++)
+        {
+            Assert.Equal(function[index], image.ReadByte((ulong)index));
         }
 
         Assert.Equal(0x1122_3344_5566_7788UL, ((delegate* unmanaged<ulong, ulong>)image.Base)(image.Base));
