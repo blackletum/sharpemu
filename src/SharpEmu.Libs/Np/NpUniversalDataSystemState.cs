@@ -64,9 +64,14 @@ internal static class NpUniversalDataSystemState
     {
         lock (Gate)
         {
-            ResetLocked();
-            _initialized = true;
+            if (!_initialized)
+            {
+                ResetLocked();
+                _initialized = true;
+            }
+
             _poolSize = poolSize;
+            UpdateMaximumInUseLocked();
             return true;
         }
     }
