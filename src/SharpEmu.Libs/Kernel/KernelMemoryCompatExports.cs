@@ -1734,7 +1734,8 @@ public static partial class KernelMemoryCompatExports
             {
                 // Stop at the first miss and report its index.
                 // The caller can then use its normal file-open fallback.
-                LogIoTrace("apr_resolve", guestPath, $"host='{hostPath}' index={i} count={count} result=not_found");
+                Console.Error.WriteLine(
+                    $"[LOADER][WARN] sceKernelAprResolveFilepathsToIdsAndFileSizes: '{guestPath}' -> '{hostPath}' not found (index {i} of {count})");
                 if (sizesAddress != 0 &&
                     !TryWriteUInt64Compat(ctx, sizesAddress + (i * sizeof(ulong)), 0))
                 {
