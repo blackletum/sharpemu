@@ -5386,11 +5386,7 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 			BinaryPrimitives.WriteUInt64LittleEndian(bytes.AsSpan(offset, sizeof(ulong)), value);
 
 		var hasContinuation = continuation.Rip >= 65536 && continuation.Rsp != 0;
-		// Orbis ucontext_t has a 0x10-byte signal mask and 0x30 bytes of
-		// private fields before its amd64 mcontext. These offsets match the
-		// platform ABI used by libScePs5Util and Unity's Boehm GC. Supplying a
-		// bare mcontext here makes the collector miss live register roots.
-		const int mcontext = 0x40;
+		const int mcontext = 0;
 		Write64(mcontext + 0x08, hasContinuation ? continuation.Rdi : context[CpuRegister.Rdi]);
 		Write64(mcontext + 0x10, hasContinuation ? continuation.Rsi : context[CpuRegister.Rsi]);
 		Write64(mcontext + 0x18, hasContinuation ? continuation.Rdx : context[CpuRegister.Rdx]);
