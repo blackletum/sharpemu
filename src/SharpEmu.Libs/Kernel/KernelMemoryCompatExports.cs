@@ -6952,9 +6952,14 @@ public static partial class KernelMemoryCompatExports
 
         string? hostPath = null;
         bool isDirectory = false;
+        bool isRandomDevice = false;
         lock (_fdGate)
         {
-            if (_openDirectories.TryGetValue(fd, out var directory))
+            if (_randomDeviceDescriptors.Contains(fd))
+            {
+                isRandomDevice = true;
+            }
+            else if (_openDirectories.TryGetValue(fd, out var directory))
             {
                 hostPath = directory.Path;
                 isDirectory = true;
@@ -6963,6 +6968,14 @@ public static partial class KernelMemoryCompatExports
             {
                 hostPath = stream.Name;
             }
+        }
+
+        if (isRandomDevice)
+        {
+            var now = DateTime.UtcNow;
+            LogIoTrace("fstat", "/dev/urandom", $"fd={fd} size=0 device=random");
+            return TryWriteKernelStat(ctx, statAddress, isDirectory: false, size: 0,
+                now, now, now, "/dev/urandom");
         }
 
         if (!string.IsNullOrWhiteSpace(hostPath))
