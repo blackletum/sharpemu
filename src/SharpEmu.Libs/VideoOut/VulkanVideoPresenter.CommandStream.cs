@@ -72,6 +72,26 @@ internal static unsafe partial class VulkanVideoPresenter
                 ? testStream.Done()
                 : IdleOutcome.Completed;
 
+    public static void RunAfterPendingCommandStreams(Action work)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        if (TryGetActivePresenter(out var presenter))
+        {
+            if (presenter.Relay.TryRunAfterAcceptedCommandStreams(work))
+            {
+                return;
+            }
+
+            if (!HostSessionControl.IsShutdownRequested && !Volatile.Read(ref _closed) &&
+                !Volatile.Read(ref _presenterCloseRequested))
+            {
+                throw SubmissionScheduler.Fatal("The GPU worker rejected an ordered video-out state change.");
+            }
+        }
+
+        work();
+    }
+
     // The blocked heads of the stream this memory submits to; null when no stream exists for it.
     internal static BlockedSnapshot? SnapshotBlockedCommandStream(ICpuMemory? memory)
     {
@@ -454,8 +474,11 @@ internal static unsafe partial class VulkanVideoPresenter
 
         public bool IsFlipDone(int handle, int index) => VideoOutExports.IsFlipDone(handle, index);
 
-        public void PrepareCpuFlip(int handle, int index, ulong requestId) =>
+        public void PrepareCpuFlip(int handle, int index, ulong requestId)
+        {
+            VideoOutExports.MarkFlipOrdered(requestId);
             CaptureFlip(handle, index, requestId, flipMode: 0, flipArg: 0);
+        }
 
         public void DrawIndexed(ulong submitId, in DrawIndexedArguments arguments)
         {
@@ -492,6 +515,9 @@ internal static unsafe partial class VulkanVideoPresenter
         // RenderExecutor records indexed indirect draws with vkCmdDrawIndexedIndirect.
         // SHARPEMU_CPU_INDIRECT_DRAW=1 reads the arguments back on the CPU as before.
         public bool ResolvesIndirectDrawOnGpu => !_cpuIndirectDraw;
+
+        // RenderExecutor records non-indexed indirect draws with vkCmdDrawIndirect.
+        public bool ResolvesNonIndexedIndirectDrawOnGpu => !_cpuIndirectDraw;
 
         private static readonly bool _cpuIndirectDraw = string.Equals(
             Environment.GetEnvironmentVariable("SHARPEMU_CPU_INDIRECT_DRAW"), "1", StringComparison.Ordinal);

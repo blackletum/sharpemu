@@ -140,6 +140,9 @@ public interface IRenderHost
     // Whether a texture bound for the draw being prepared reads the depth attachment's subresources.
     bool SamplesDepthAttachment(in DepthAttachmentState depth) => true;
 
+    // The layout the depth attachment's subresources are in now, or null when unknown or mixed.
+    ImageLayout? DepthAttachmentLayout(in DepthAttachmentState depth) => null;
+
     // The next draw stores to buffers or storage images; called before its BeginRendering.
     void PrepareMemoryWritingDraw() { }
 
@@ -151,6 +154,10 @@ public interface IRenderHost
 
     // One indexed draw whose counts the GPU reads from the buffer (VkDrawIndexedIndirectCommand layout).
     void DrawIndexedIndirect(BufferBinding arguments) =>
+        throw new NotSupportedException("The render host does not draw from indirect arguments.");
+
+    // One draw whose counts the GPU reads from the buffer (VkDrawIndirectCommand layout).
+    void DrawIndirect(BufferBinding arguments) =>
         throw new NotSupportedException("The render host does not draw from indirect arguments.");
 
     void Dispatch(uint groupsX, uint groupsY, uint groupsZ);
