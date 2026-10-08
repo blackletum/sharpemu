@@ -147,7 +147,7 @@ public static class LibcStdioExports
                 }
             }
 
-            var stream = new FileStream(hostPath, fileMode, fileAccess, FileShare.ReadWrite);
+            var stream = new FileStream(hostPath, fileMode, fileAccess, KernelMemoryCompatExports.GuestFileShare);
             if (mode.StartsWith('a') && fileAccess == FileAccess.ReadWrite)
             {
                 stream.Seek(0, SeekOrigin.End);
@@ -1063,7 +1063,7 @@ public static class LibcStdioExports
                 }
             }
 
-            var replacement = new FileStream(hostPath, fileMode, fileAccess, FileShare.ReadWrite);
+            var replacement = new FileStream(hostPath, fileMode, fileAccess, KernelMemoryCompatExports.GuestFileShare);
             lock (file.Gate)
             {
                 if (file.IsClosed)
