@@ -234,6 +234,12 @@ public static class NetExports
     public static int NetSocketClose(CpuContext ctx)
     {
         var id = unchecked((int)ctx[CpuRegister.Rdi]);
+        if (KernelSocketCompatExports.TryCloseSocketFd(id))
+        {
+            TraceNet("socket.close.posix", id, 0, 0, 0);
+            return ctx.SetReturn(0);
+        }
+
         if (!_sockets.TryRemove(id, out var socket))
         {
             return SetNetError(ctx, NetErrorBadFileDescriptor, NetErrnoBadFileDescriptor);
