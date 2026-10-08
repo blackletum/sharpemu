@@ -70,6 +70,20 @@ public static class LibcStdioExports
     private static nint _ctypeTableBase;
 
     [SysAbiExport(
+        Nid = "vZkmJmvqueY",
+        ExportName = "_Lockfilelock",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int LockFileLock(CpuContext ctx) => ctx.SetReturn(0);
+
+    [SysAbiExport(
+        Nid = "0x7rx8TKy2Y",
+        ExportName = "_Unlockfilelock",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int UnlockFileLock(CpuContext ctx) => ctx.SetReturn(0);
+
+    [SysAbiExport(
         Nid = "xeYO4u7uyJ0",
         ExportName = "fopen",
         Target = Generation.Gen4 | Generation.Gen5,
