@@ -246,6 +246,30 @@ public static class JsonExports
     }
 
     [SysAbiExport(
+        Nid = "WVZBP4IyM+E",
+        ExportName = "_ZN3sce4Json14InitParameter225setSpecialFloatFormatTypeENS0_22SpecialFloatFormatTypeE",
+        Target = Generation.Gen5,
+        LibraryName = "libSceJson")]
+    public static int InitParameter2SetSpecialFloatFormatType(CpuContext ctx)
+    {
+        var thisAddress = ctx[CpuRegister.Rdi];
+        if (thisAddress == 0)
+        {
+            return SetReturn(ctx, (int)OrbisGen2Result.ORBIS_GEN2_ERROR_INVALID_ARGUMENT);
+        }
+
+        Span<byte> field = stackalloc byte[sizeof(uint)];
+        BinaryPrimitives.WriteUInt32LittleEndian(field, unchecked((uint)ctx[CpuRegister.Rsi]));
+        if (!ctx.Memory.TryWrite(thisAddress + 0x18, field))
+        {
+            return SetReturn(ctx, (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT);
+        }
+
+        ctx[CpuRegister.Rax] = thisAddress;
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(
         Nid = "IXW-z8pggfg",
         ExportName = "_ZN3sce4Json11Initializer10initializeEPKNS0_14InitParameter2E",
         Target = Generation.Gen5,
