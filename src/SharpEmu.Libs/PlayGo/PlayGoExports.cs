@@ -19,6 +19,7 @@ public static class PlayGoExports
     private const int OrbisPlayGoErrorBadChunkId = unchecked((int)0x80B2000C);
     private const int OrbisPlayGoErrorNotSupportPlayGo = unchecked((int)0x80B2000E);
     private const int OrbisPlayGoErrorBadLocus = unchecked((int)0x80B20010);
+    private const int OrbisPlayGoErrorBadOptionalType = unchecked((int)0x80B20024);
     private const ulong PlayGoInitBufAddrOffset = 0;
     private const ulong PlayGoInitBufSizeOffset = 8;
     private const uint PlayGoMinimumInitBufferSize = 0x200000;
@@ -29,6 +30,10 @@ public static class PlayGoExports
     private const int PlayGoInstallSpeedSuspended = 0;
     private const int PlayGoInstallSpeedTrickle = 1;
     private const int PlayGoInstallSpeedFull = 2;
+    private const int PlayGoOptionalTypeLanguage = 0;
+    private const int PlayGoOptionalTypeScenario = 1;
+    private const ulong PlayGoLanguageMaskAll = ulong.MaxValue;
+    private const ulong PlayGoScenarioMaskAll = 0x1f;
     private const uint MaxPlayGoQueryEntries = 0x4000;
     private const uint PlayGoAllEntriesSentinel = uint.MaxValue;
 
@@ -260,6 +265,91 @@ public static class PlayGoExports
         return ctx.TryWriteUInt32(outEntries, entriesToWrite)
             ? (int)OrbisGen2Result.ORBIS_GEN2_OK
             : (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
+    }
+
+    [SysAbiExport(
+        Nid = "8-e7E989rCU",
+        ExportName = "scePlayGoGetInstallChunkId",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libScePlayGo")]
+    public static int PlayGoGetInstallChunkId(CpuContext ctx)
+    {
+        return PlayGoGetChunkId(ctx);
+    }
+
+    [SysAbiExport(
+        Nid = "g4AZyxpSAlA",
+        ExportName = "scePlayGoGetOptionalChunk",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libScePlayGo")]
+    public static int PlayGoGetOptionalChunk(CpuContext ctx)
+    {
+        var handle = unchecked((uint)ctx[CpuRegister.Rdi]);
+        var type = unchecked((int)ctx[CpuRegister.Rsi]);
+        var outOption = ctx[CpuRegister.Rdx];
+
+        var validation = ValidateHandle(handle);
+        if (validation != 0)
+        {
+            return validation;
+        }
+
+        if (outOption == 0)
+        {
+            return OrbisPlayGoErrorBadPointer;
+        }
+
+        var option = type switch
+        {
+            PlayGoOptionalTypeLanguage => PlayGoLanguageMaskAll,
+            PlayGoOptionalTypeScenario => PlayGoScenarioMaskAll,
+            _ => 0UL,
+        };
+        if (type is not PlayGoOptionalTypeLanguage and not PlayGoOptionalTypeScenario)
+        {
+            return OrbisPlayGoErrorBadOptionalType;
+        }
+
+        return ctx.TryWriteUInt64(outOption, option)
+            ? (int)OrbisGen2Result.ORBIS_GEN2_OK
+            : (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
+    }
+
+    [SysAbiExport(
+        Nid = "IfiN+-oeVWI",
+        ExportName = "scePlayGoGetSupportedOptionalChunk",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libScePlayGo")]
+    public static int PlayGoGetSupportedOptionalChunk(CpuContext ctx)
+    {
+        return PlayGoGetOptionalChunk(ctx);
+    }
+
+    [SysAbiExport(
+        Nid = "HVAa744ecdw",
+        ExportName = "scePlayGoPrefetchOptionalChunk",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libScePlayGo")]
+    public static int PlayGoPrefetchOptionalChunk(CpuContext ctx)
+    {
+        var handle = unchecked((uint)ctx[CpuRegister.Rdi]);
+        var type = unchecked((int)ctx[CpuRegister.Rsi]);
+        var option = ctx[CpuRegister.Rdx];
+
+        var validation = ValidateHandle(handle);
+        if (validation != 0)
+        {
+            return validation;
+        }
+
+        if (option == 0)
+        {
+            return OrbisPlayGoErrorBadPointer;
+        }
+
+        return type is PlayGoOptionalTypeLanguage or PlayGoOptionalTypeScenario
+            ? (int)OrbisGen2Result.ORBIS_GEN2_OK
+            : OrbisPlayGoErrorBadOptionalType;
     }
 
     [SysAbiExport(
