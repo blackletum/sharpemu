@@ -65,6 +65,18 @@ public static class PadExports
     [SysAbiExport(
         Nid = "xk0AcarP3V4",
         ExportName = "scePadOpen",
+    #pragma warning disable SHEM006
+    [SysAbiExport(
+        Nid = "n3kSX62fgNo",
+        ExportName = "scePadUnknownN3kSX62fgNo",
+        Target = Generation.Gen5,
+        LibraryName = "libScePad")]
+    public static int PadUnknownN3kSX62fgNo(CpuContext ctx)
+    {
+        return ctx.SetReturn(0);
+    }
+    #pragma warning restore SHEM006
+
         Target = Generation.Gen4 | Generation.Gen5,
         LibraryName = "libScePad")]
     public static int PadOpen(CpuContext ctx) => PadOpenCore(ctx, extended: false);
