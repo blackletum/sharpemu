@@ -97,6 +97,7 @@ public static partial class KernelMemoryCompatExports
 
     private static readonly object _fdGate = new();
     private static readonly Dictionary<int, FileStream> _openFiles = new();
+    private static readonly HashSet<int> _randomDeviceDescriptors = new();
     private static readonly Dictionary<int, HostMovieBridge.BinkGuestCompletionShim>
         _binkGuestCompletionShims = new();
     private static readonly Dictionary<int, string> _observedBinkGuestFiles = new();
@@ -1451,6 +1452,19 @@ public static partial class KernelMemoryCompatExports
         if (!TryReadNullTerminatedUtf8(ctx, pathAddress, MaxGuestStringLength, out var guestPath))
         {
             return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
+        }
+
+        if (IsRandomDevicePath(guestPath) && (flags & O_DIRECTORY) == 0)
+        {
+            var randomFd = (int)Interlocked.Increment(ref _nextFileDescriptor);
+            lock (_fdGate)
+            {
+                _randomDeviceDescriptors.Add(randomFd);
+            }
+
+            LogOpenTrace($"_open random-device path='{guestPath}' flags=0x{flags:X8} fd={randomFd}");
+            ctx[CpuRegister.Rax] = unchecked((ulong)randomFd);
+            return (int)OrbisGen2Result.ORBIS_GEN2_OK;
         }
 
         var hostPath = ResolveGuestPath(guestPath);
@@ -6946,6 +6960,10 @@ public static partial class KernelMemoryCompatExports
 
         return !string.IsNullOrWhiteSpace(hostPath) && TryWriteHostPathStat(ctx, statAddress, hostPath!, isDirectory);
     }
+
+    private static bool IsRandomDevicePath(string path) =>
+        string.Equals(path, "/dev/random", StringComparison.Ordinal) ||
+        string.Equals(path, "/dev/urandom", StringComparison.Ordinal);
 
     private static bool TryWriteHostPathStat(CpuContext ctx, ulong statAddress, string hostPath)
     {
