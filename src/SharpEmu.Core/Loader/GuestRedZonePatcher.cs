@@ -310,7 +310,10 @@ internal static class GuestRedZonePatcher
                         canBorrowFollowingInstructions,
                         out span,
                         out refusal);
-                    if (!forward)
+                    var backward = !forward &&
+                        canBorrowFollowingInstructions &&
+                        TryBuildEnclosingPatchSpan(decoded, instructionIndex, branchTargets, out span);
+                    if (!forward && !backward)
                     {
                         unrelocatableSites++;
                         refusalCounts[(int)refusal]++;
@@ -335,7 +338,10 @@ internal static class GuestRedZonePatcher
                         shaInstructionCount += span.Instructions.Count(static instruction => ShaInstructionRewrite.CanRewrite(instruction));
                     }
 
-                    instructionIndex += span.Instructions.Count - 1;
+                    if (!backward)
+                    {
+                        instructionIndex += span.Instructions.Count - 1;
+                    }
                 }
             }
         }
