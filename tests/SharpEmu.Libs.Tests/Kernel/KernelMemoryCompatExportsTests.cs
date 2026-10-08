@@ -436,6 +436,50 @@ public sealed class KernelMemoryCompatExportsTests
         }
     }
 
+    [Fact]
+    public void AvailableDirectMemorySize_FullRangeClearsOutputsAndReportsNoSpace()
+    {
+        const ulong allocationStart = 0;
+        const ulong allocationLength = 0x0040_0000;
+        var context = new CpuContext(new FakeCpuMemory(GuestMemoryBase, 0x1000), Generation.Gen5);
+
+        try
+        {
+            AllocateDirectMemory(context, allocationStart, allocationLength);
+            Assert.True(context.TryWriteUInt64(SpanStartOutAddress, 0xDEAD_BEEF));
+            Assert.True(context.TryWriteUInt64(SpanSizeOutAddress, 0xDEAD_BEEF));
+
+            context[CpuRegister.Rdi] = allocationStart;
+            context[CpuRegister.Rsi] = allocationStart + allocationLength;
+            context[CpuRegister.Rdx] = 0;
+            context[CpuRegister.Rcx] = SpanStartOutAddress;
+            context[CpuRegister.R8] = SpanSizeOutAddress;
+
+            Assert.Equal(unchecked((int)0x8002000C), KernelMemoryCompatExports.KernelAvailableDirectMemorySize(context));
+            Assert.True(context.TryReadUInt64(SpanStartOutAddress, out var spanStart));
+            Assert.True(context.TryReadUInt64(SpanSizeOutAddress, out var spanSize));
+            Assert.Equal(0UL, spanStart);
+            Assert.Equal(0UL, spanSize);
+        }
+        finally
+        {
+            ReleaseDirectMemory(context, allocationStart, allocationLength);
+        }
+    }
+
+    [Fact]
+    public void AvailableDirectMemorySize_EmptySearchRangeReportsNoSpace()
+    {
+        var context = new CpuContext(new FakeCpuMemory(GuestMemoryBase, 0x1000), Generation.Gen5);
+        context[CpuRegister.Rdi] = 0x0010_0000;
+        context[CpuRegister.Rsi] = 0x0010_0000;
+        context[CpuRegister.Rdx] = 0;
+        context[CpuRegister.Rcx] = SpanStartOutAddress;
+        context[CpuRegister.R8] = SpanSizeOutAddress;
+
+        Assert.Equal(unchecked((int)0x8002000C), KernelMemoryCompatExports.KernelAvailableDirectMemorySize(context));
+    }
+
     private static void AllocateDirectMemory(CpuContext context, ulong start, ulong length, ulong outputAddress = AllocationOutAddress)
     {
         context[CpuRegister.Rdi] = start;
