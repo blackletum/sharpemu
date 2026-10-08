@@ -5375,7 +5375,7 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 		return true;
 	}
 
-	private static bool TryWriteGuestExceptionContext(
+	internal static bool TryWriteGuestExceptionContext(
 		CpuContext context,
 		ulong address,
 		GuestCpuContinuation continuation,
