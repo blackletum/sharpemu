@@ -23,6 +23,49 @@ public sealed class PadExportsTests : IDisposable
 
     public void Dispose() => PadExports.ResetOpenedPadForTests();
 
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(4, 4)]
+    [InlineData(15, 12)]
+    public void DeviceClassParseData_BoundsThePayloadAndPreservesAdjacentMemory(int length, int copied)
+    {
+        var padData = new byte[0x78];
+        padData[0x4C] = 1;
+        padData[0x6B] = (byte)length;
+        for (var index = 0; index < 12; index++)
+        {
+            padData[0x6C + index] = (byte)(index + 1);
+        }
+        Assert.True(_memory.TryWrite(Base + 0x100, padData));
+        Assert.True(_memory.TryWrite(Base + 0x200, Enumerable.Repeat((byte)0xA5, 32).ToArray()));
+        _ctx[CpuRegister.Rdi] = 0;
+        _ctx[CpuRegister.Rsi] = Base + 0x100;
+        _ctx[CpuRegister.Rdx] = Base + 0x200;
+
+        Assert.Equal(0, PadExports.PadDeviceClassParseData(_ctx));
+        var output = new byte[32];
+        Assert.True(_memory.TryRead(Base + 0x200, output));
+        Assert.Equal(copied == 0 ? 0 : -1, BitConverter.ToInt32(output));
+        Assert.Equal(1, output[4]);
+        Assert.Equal(copied, output[8]);
+        Assert.Equal(padData.AsSpan(0x6C, copied).ToArray(), output.AsSpan(12, copied).ToArray());
+        Assert.All(output[24..], value => Assert.Equal(0xA5, value));
+    }
+
+    [Fact]
+    public void DeviceClassGetExtendedInformation_LeavesAdjacentMemoryIntact()
+    {
+        const ulong address = Base + 0x100;
+        Assert.True(_memory.TryWrite(address, Enumerable.Repeat((byte)0xA5, 32).ToArray()));
+        _ctx[CpuRegister.Rdi] = 0;
+        _ctx[CpuRegister.Rsi] = address;
+        Assert.Equal(0, PadExports.PadDeviceClassGetExtendedInformation(_ctx));
+        var output = new byte[32];
+        Assert.True(_memory.TryRead(address, output));
+        Assert.All(output[..0x14], value => Assert.Equal(0, value));
+        Assert.All(output[0x14..], value => Assert.Equal(0xA5, value));
+    }
+
     [NativeX64Theory]
     [InlineData(0, 0)]
     [InlineData(1, 0)]

@@ -198,6 +198,59 @@ public sealed class KernelMemoryCompatExportsTests
     }
 
     [Fact]
+    public void UnderscoreOpen_MissingFileUsesPosixFailureAbi()
+    {
+        var memory = new FakeCpuMemory(GuestMemoryBase, 0x1000);
+        var context = new CpuContext(memory, Generation.Gen5) { FsBase = GuestMemoryBase + 0x800 };
+        memory.WriteCString(GuestMemoryBase + 0x100, "/__sharpemu_test_missing__/resource_level_high.bin");
+        context[CpuRegister.Rdi] = GuestMemoryBase + 0x100;
+
+        Assert.Equal(-1, KernelMemoryCompatExports.KernelOpenUnderscore(context));
+        Assert.Equal(ulong.MaxValue, context[CpuRegister.Rax]);
+        Assert.True(context.TryReadUInt32(context.FsBase + 0x40, out var errno));
+        Assert.Equal(2u, errno);
+        Assert.Equal((int)OrbisGen2Result.ORBIS_GEN2_ERROR_NOT_FOUND, KernelExports.KernelOpen(context));
+    }
+
+    [Theory]
+    [InlineData("/dev/random")]
+    [InlineData("/dev/urandom")]
+    public void PosixRandomDevice_OpenReadFstatAndClose(string path)
+    {
+        var memory = new FakeCpuMemory(GuestMemoryBase, 0x1000);
+        var context = new CpuContext(memory, Generation.Gen5);
+        memory.WriteCString(GuestMemoryBase + 0x100, path);
+        context[CpuRegister.Rdi] = GuestMemoryBase + 0x100;
+
+        Assert.Equal(0, KernelMemoryCompatExports.KernelOpenUnderscore(context));
+        var fd = context[CpuRegister.Rax];
+        Assert.True(fd >= 3);
+        try
+        {
+            context[CpuRegister.Rdi] = fd;
+            context[CpuRegister.Rsi] = GuestMemoryBase + 0x200;
+            context[CpuRegister.Rdx] = 32;
+            Assert.Equal(0, KernelMemoryCompatExports.PosixRead(context));
+            Assert.Equal(32UL, context[CpuRegister.Rax]);
+            var randomBytes = new byte[32];
+            Assert.True(memory.TryRead(GuestMemoryBase + 0x200, randomBytes));
+            Assert.Contains(randomBytes, value => value != 0);
+
+            context[CpuRegister.Rsi] = GuestMemoryBase + 0x400;
+            Assert.Equal(0, KernelMemoryCompatExports.PosixFstat(context));
+        }
+        finally
+        {
+            context[CpuRegister.Rdi] = fd;
+            Assert.Equal(0, KernelMemoryCompatExports.PosixClose(context));
+        }
+
+        context[CpuRegister.Rsi] = GuestMemoryBase + 0x200;
+        context[CpuRegister.Rdx] = 1;
+        Assert.Equal(-1, KernelMemoryCompatExports.PosixRead(context));
+    }
+
+    [Fact]
     public void PosixOpen_MissingFileReturnsMinusOne()
     {
         const ulong memoryBase = 0x1_0000_0000;
