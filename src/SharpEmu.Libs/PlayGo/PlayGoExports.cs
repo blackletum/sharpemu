@@ -841,7 +841,7 @@ public static class PlayGoExports
         }
     }
 
-    internal static void ResetForTests()
+    public static void ResetRuntimeState()
     {
         lock (_stateGate)
         {
@@ -855,6 +855,8 @@ public static class PlayGoExports
         Interlocked.Exchange(ref _unknownChunkDiagnostics, 0);
         Interlocked.Exchange(ref _locusTraceDiagnostics, 0);
     }
+
+    internal static void ResetForTests() => ResetRuntimeState();
 
     private enum PlayGoChunkIdKnowledge
     {
