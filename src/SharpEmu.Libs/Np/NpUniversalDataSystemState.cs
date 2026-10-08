@@ -484,13 +484,15 @@ internal static class NpUniversalDataSystemState
         }
     }
 
-    internal static void ResetForTests()
+    internal static void ResetRuntimeState()
     {
         lock (Gate)
         {
             ResetLocked();
         }
     }
+
+    internal static void ResetForTests() => ResetRuntimeState();
 
     private static ulong CreateObjectLocked(UdsObjectNode node)
     {
