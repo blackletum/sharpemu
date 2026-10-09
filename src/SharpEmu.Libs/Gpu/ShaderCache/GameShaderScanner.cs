@@ -48,26 +48,28 @@ internal static class GameShaderScanner
         var total = pending.Sum(entry => entry.Info.Length);
         var scanned = 0L;
         var programs = 0;
+        progress?.Invoke(0, total);
         Parallel.ForEach(
             pending,
             new ParallelOptions { MaxDegreeOfParallelism = Math.Clamp(Environment.ProcessorCount / 2, 1, 8), CancellationToken = cancellation },
             entry =>
             {
-                var found = ScanFile(entry.Info, file, cancellation);
+                var found = ScanFile(entry.Info, file, bytes =>
+                    progress?.Invoke(Interlocked.Add(ref scanned, bytes), total), cancellation);
                 Interlocked.Add(ref programs, found);
                 file.RecordScannedFile(new ScannedFile(entry.Relative, entry.Info.Length, entry.Info.LastWriteTimeUtc.Ticks, found, Version));
-                progress?.Invoke(Interlocked.Add(ref scanned, entry.Info.Length), total);
             });
         return new ShaderScanResult(pending.Count, skipped, programs, total);
     }
 
-    private static int ScanFile(FileInfo info, ShaderCacheFile file, CancellationToken cancellation)
+    private static int ScanFile(FileInfo info, ShaderCacheFile file, Action<long> progress, CancellationToken cancellation)
     {
         using var handle = File.OpenHandle(info.FullName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, FileOptions.SequentialScan);
         var length = RandomAccess.GetLength(handle);
         var signature = AgcShaderHeader.Signature;
         var buffer = new byte[ChunkBytes];
         var found = new List<FoundProgram>();
+        var reported = 0L;
         for (var chunkStart = 0L; chunkStart < length;)
         {
             cancellation.ThrowIfCancellationRequested();
@@ -90,6 +92,9 @@ internal static class GameShaderScanner
                 position = next < 0 ? -1 : position + 1 + next;
             }
 
+            var completed = Math.Min(chunkStart + read, info.Length);
+            progress(completed - reported);
+            reported = completed;
             if (chunkStart + read >= length)
             {
                 break;

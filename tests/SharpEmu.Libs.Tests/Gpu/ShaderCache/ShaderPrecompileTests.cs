@@ -145,7 +145,10 @@ public sealed class ShaderPrecompileTests : IDisposable
         File.WriteAllBytes(Path.Combine(game, "movie.mp4"), bundle.ToArray());
         using (var file = Open())
         {
-            var result = GameShaderScanner.Scan(game, file, null, CancellationToken.None);
+            var progress = new List<(long Done, long Total)>();
+            var result = GameShaderScanner.Scan(game, file, (done, total) => progress.Add((done, total)), CancellationToken.None);
+            Assert.Equal((0L, bundle.Length), progress[0]);
+            Assert.Equal((bundle.Length, bundle.Length), progress[^1]);
             Assert.Equal(1, result.FilesScanned);
             Assert.Equal(3, result.Programs);
             Assert.Equal(3, file.Programs.Count);
@@ -212,6 +215,28 @@ public sealed class ShaderPrecompileTests : IDisposable
         using var reopened = Open();
         Assert.True(reopened.IsDone(2, 5));
         Assert.False(reopened.IsDone(3, 5));
+    }
+
+    [Fact]
+    public void LoadingReportsIndexedBytesAndCancellationDoesNotDamageTheCache()
+    {
+        string path;
+        using (var file = Open())
+        {
+            path = file.Path;
+            for (var index = 0ul; index < 256; index++) file.AddDone(index, 5);
+        }
+        var original = File.ReadAllBytes(path);
+        Assert.Throws<OperationCanceledException>(() => ShaderCacheFile.Open(_directory,
+            (_, _) => throw new OperationCanceledException()));
+        Assert.Equal(original, File.ReadAllBytes(path));
+
+        var progress = new List<(long Done, long Total)>();
+        using var reopened = ShaderCacheFile.Open(_directory, (done, total) => progress.Add((done, total)))!;
+        Assert.True(progress.Count >= 4);
+        Assert.Equal((0L, (long)original.Length), progress[0]);
+        Assert.Equal((reopened.Length, reopened.Length), progress[^1]);
+        Assert.True(reopened.IsDone(255, 5));
     }
 
     [Fact]

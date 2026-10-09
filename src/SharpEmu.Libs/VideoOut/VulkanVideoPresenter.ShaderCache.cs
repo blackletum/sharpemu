@@ -179,40 +179,50 @@ internal static unsafe partial class VulkanVideoPresenter
                 return false;
             }
 
-            if (ShaderCacheDirectory(VideoOutExports.GetApplicationTitleId()) is not { } directory ||
-                ShaderCacheFile.Open(directory) is not { } file)
+            if (ShaderCacheDirectory(VideoOutExports.GetApplicationTitleId()) is not { } directory)
             {
                 return false;
             }
 
             InitializeShaderCacheStamps();
-            if (file.ImportedLegacyComputes > 0)
-            {
-                Console.Error.WriteLine($"[SHADER CACHE] {title}: imported {file.ImportedLegacyComputes} compute pipelines from the old prewarm list.");
-            }
-
-            Volatile.Write(ref _shaderCache, file);
-            UseShaderCacheStores(file, file);
-            ShaderInventory.Attach(file, null);
             _shaderSeedPath = ShaderCacheSettings.SeedPath(VideoOutExports.GetApplicationTitleId());
-            LogShaderCacheSummary(title, file);
             var app0Root = Environment.GetEnvironmentVariable("SHARPEMU_APP0_DIR");
             var seedExists = File.Exists(_shaderSeedPath);
-            if (ShaderCacheSettings.Learn && !seedExists)
-            {
-                Console.Error.WriteLine(
-                    $"[SHADER CACHE] {title}: learning run, nothing is precompiled now. The shader seed is written to {_shaderSeedPath} " +
-                    "while you play, and the next launch prepares every shader and pipeline from it.");
-                StartShaderCacheSession(title);
-                return false;
-            }
-
             var full = ShaderCacheSettings.FullPrecompile || seedExists;
             SetShaderCacheState(true);
+            _precompileStarted = Stopwatch.GetTimestamp();
+            UpdateShaderCacheProgress(ShaderCachePhase.Loading);
             _shaderCacheThread = new Thread(() =>
             {
                 try
                 {
+                    // Disk indexing must not stop the splash's render/event loop.
+                    var file = ShaderCacheFile.Open(directory, (done, total) =>
+                    {
+                        _shaderCacheCancel.Token.ThrowIfCancellationRequested();
+                        UpdateShaderCacheProgress(ShaderCachePhase.Loading, done, total);
+                    });
+                    if (file is null)
+                    {
+                        return;
+                    }
+
+                    UseShaderCacheStores(file, file);
+                    ShaderInventory.Attach(file, null);
+                    Volatile.Write(ref _shaderCache, file);
+                    if (file.ImportedLegacyComputes > 0)
+                    {
+                        Console.Error.WriteLine($"[SHADER CACHE] {title}: imported {file.ImportedLegacyComputes} compute pipelines from the old prewarm list.");
+                    }
+                    LogShaderCacheSummary(title, file);
+                    if (ShaderCacheSettings.Learn && !seedExists)
+                    {
+                        Console.Error.WriteLine(
+                            $"[SHADER CACHE] {title}: learning run, nothing is precompiled now. The shader seed is written to {_shaderSeedPath} " +
+                            "while you play, and the next launch prepares every shader and pipeline from it.");
+                        return;
+                    }
+
                     Precompile(file, title, app0Root, full, _shaderCacheCancel.Token);
                 }
                 catch (OperationCanceledException)
@@ -224,8 +234,13 @@ internal static unsafe partial class VulkanVideoPresenter
                 }
                 finally
                 {
+                    Volatile.Write(ref _shaderCacheProgress, null);
+                    WakeRenderThread();
                     SetShaderCacheState(false);
-                    StartShaderCacheSession(title);
+                    if (!_shaderCacheCancel.IsCancellationRequested)
+                    {
+                        StartShaderCacheSession(title);
+                    }
                 }
             })
             {
@@ -360,7 +375,7 @@ internal static unsafe partial class VulkanVideoPresenter
 
         private void Precompile(ShaderCacheFile file, string title, string? app0Root, bool full, CancellationToken cancellation)
         {
-            _precompileStarted = Stopwatch.GetTimestamp();
+            if (_precompileStarted == 0) _precompileStarted = Stopwatch.GetTimestamp();
             MergeLeftoverParts(file);
             if (!string.IsNullOrEmpty(app0Root) && Directory.Exists(app0Root))
             {
@@ -372,6 +387,7 @@ internal static unsafe partial class VulkanVideoPresenter
             for (var pass = 0; !_shaderCacheDriverMismatch; pass++)
             {
                 cancellation.ThrowIfCancellationRequested();
+                UpdateShaderCacheProgress(ShaderCachePhase.Preparing);
                 var length = file.Length;
                 List<ShaderWorkItem> pending;
                 using (var snapshot = ShaderCacheFile.OpenSnapshot(file.Path, length))
@@ -404,6 +420,7 @@ internal static unsafe partial class VulkanVideoPresenter
                 _precompileComputeTotal = pending.Count(static item => item.IsCompute);
                 _precompileGraphicsTotal = pending.Count - _precompileComputeTotal;
                 _precompileComputeDone = _precompileGraphicsDone = 0;
+                Volatile.Write(ref _precompilePass, pass + 1);
                 RunPrecompileWorkers(file, title, length, pending.Count, full, cancellation);
                 prepared = true;
                 if (Volatile.Read(ref _precompileComputeDone) + Volatile.Read(ref _precompileGraphicsDone) == 0 && doneBefore == 0)
@@ -456,12 +473,16 @@ internal static unsafe partial class VulkanVideoPresenter
             }
         }
 
-        private static void MergeLeftoverParts(ShaderCacheFile file)
+        private void MergeLeftoverParts(ShaderCacheFile file)
         {
             var directory = Path.GetDirectoryName(file.Path)!;
-            foreach (var part in Directory.EnumerateFiles(directory, Path.GetFileName(file.Path) + ".part*"))
+            var parts = Directory.GetFiles(directory, Path.GetFileName(file.Path) + ".part*");
+            UpdateShaderCacheProgress(ShaderCachePhase.Recovering, 0, parts.Length);
+            var recovered = 0;
+            foreach (var part in parts)
             {
                 file.MergePart(part);
+                UpdateShaderCacheProgress(ShaderCachePhase.Recovering, ++recovered, parts.Length);
                 try
                 {
                     File.Delete(part);
@@ -476,8 +497,10 @@ internal static unsafe partial class VulkanVideoPresenter
         {
             var started = Stopwatch.GetTimestamp();
             var lastReport = started;
+            UpdateShaderCacheProgress(ShaderCachePhase.Scanning);
             var result = GameShaderScanner.Scan(app0Root, file, (done, total) =>
             {
+                UpdateShaderCacheProgress(ShaderCachePhase.Scanning, done, total);
                 var now = Stopwatch.GetTimestamp();
                 if (Stopwatch.GetElapsedTime(Interlocked.Read(ref lastReport), now) < ShaderCacheProgressInterval)
                 {
@@ -526,6 +549,10 @@ internal static unsafe partial class VulkanVideoPresenter
             }
 
             var jobs = Math.Min(ShaderCacheSettings.PrecompileJobs, batches.Count);
+            Volatile.Write(ref _precompileBatches, batches.Count);
+            Volatile.Write(ref _precompileMerged, 0);
+            Volatile.Write(ref _precompileWorkersActive, jobs);
+            UpdateShaderCacheProgress(ShaderCachePhase.Compiling);
             using var progress = new Timer(_ => ReportPrecompileProgress(title, jobs), null, ShaderCacheProgressInterval, ShaderCacheProgressInterval);
             var threads = new Thread[jobs];
             for (var slot = 0; slot < jobs; slot++)
@@ -533,9 +560,16 @@ internal static unsafe partial class VulkanVideoPresenter
                 var part = file.Path + ".part" + slot.ToString(CultureInfo.InvariantCulture);
                 threads[slot] = new Thread(() =>
                 {
-                    while (!cancellation.IsCancellationRequested && !_shaderCacheDriverMismatch && batches.TryDequeue(out var batch))
+                    try
                     {
-                        RunPrecompileWorker(file, length, batch.First, batch.Count, part, full, cancellation);
+                        while (!cancellation.IsCancellationRequested && !_shaderCacheDriverMismatch && batches.TryDequeue(out var batch))
+                        {
+                            RunPrecompileWorker(file, length, batch.First, batch.Count, part, full, cancellation);
+                        }
+                    }
+                    finally
+                    {
+                        Interlocked.Decrement(ref _precompileWorkersActive);
                     }
                 })
                 {
@@ -654,6 +688,7 @@ internal static unsafe partial class VulkanVideoPresenter
                 if (File.Exists(part))
                 {
                     file.MergePart(part);
+                    Interlocked.Increment(ref _precompileMerged);
                     try
                     {
                         File.Delete(part);
@@ -1389,6 +1424,10 @@ internal static unsafe partial class VulkanVideoPresenter
 
         private void CompactShaderCache(ShaderCacheFile file, bool dropUnreferencedBinaries = false)
         {
+            if (Volatile.Read(ref _shaderCacheProgress) is not null)
+            {
+                UpdateShaderCacheProgress(ShaderCachePhase.Finalizing);
+            }
             if (file.Compact(_shaderCacheStamp, _pipelineBinaries?.DriverKey ?? [], _shaderCacheDriverStamp,
                     dropUnreferencedBinaries: dropUnreferencedBinaries) is { } result)
             {

@@ -172,7 +172,7 @@ internal sealed class ShaderCacheFile : IDisposable
 
     public int ImportedLegacyComputes { get; private set; }
 
-    public static ShaderCacheFile? Open(string directory)
+    public static ShaderCacheFile? Open(string directory, Action<long, long>? progress = null)
     {
         try
         {
@@ -182,7 +182,7 @@ internal sealed class ShaderCacheFile : IDisposable
             var file = new ShaderCacheFile(path, handle);
             try
             {
-                file.Load();
+                file.Load(progress);
                 file.ImportLegacyList(System.IO.Path.Combine(directory, LegacyListName));
             }
             catch
@@ -878,10 +878,12 @@ internal sealed class ShaderCacheFile : IDisposable
 
     private static bool IsLazyKind(byte kind) => kind is CompiledStageKind or BinaryKind;
 
-    private void Load()
+    private void Load(Action<long, long>? progress = null)
     {
         var fileLength = RandomAccess.GetLength(_handle);
         var length = Math.Min(fileLength, _lengthLimit);
+        progress?.Invoke(0, length);
+        var indexed = 0;
         var validEnd = 0L;
         var header = new byte[FileHeaderBytes];
         if (length >= FileHeaderBytes &&
@@ -909,6 +911,10 @@ internal sealed class ShaderCacheFile : IDisposable
                 }
 
                 validEnd += RecordHeaderBytes + bodyLength;
+                if (progress is not null && (++indexed & 127) == 0)
+                {
+                    progress?.Invoke(validEnd, length);
+                }
             }
         }
 
@@ -921,6 +927,7 @@ internal sealed class ShaderCacheFile : IDisposable
             }
 
             _length = _readOnly ? 0 : FileHeaderBytes;
+            progress?.Invoke(length, length);
             return;
         }
 
@@ -930,6 +937,7 @@ internal sealed class ShaderCacheFile : IDisposable
         }
 
         _length = validEnd;
+        progress?.Invoke(length, length);
     }
 
     private bool TryIndex(byte[] body, long offset, int totalLength, ulong checksum)
