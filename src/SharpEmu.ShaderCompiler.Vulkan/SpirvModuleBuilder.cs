@@ -281,6 +281,7 @@ public enum SpirvBuiltIn : uint
     GlobalInvocationId = 28,
     LocalInvocationIndex = 29,
     SubgroupSize = 36,
+    SubgroupId = 40,
     SubgroupLocalInvocationId = 41,
     SampleId = 18,
     SampleMask = 20,
