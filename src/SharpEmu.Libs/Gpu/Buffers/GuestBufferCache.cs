@@ -1895,12 +1895,14 @@ public sealed unsafe class GuestBufferCache : IGuestBufferStore, IDisposable
     {
         using var profileScope = RenderPhaseProfile.MeasureDetail(RenderPhaseProfile.Phase.BufferDirtySynchronization);
         var startedAt = BufferUploadProfile.Enabled ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
-        if ((!preserveCpuWriteHotPages && !isWritten && !isTexelBuffer && !_tracker.MayHaveCpuDirtyPages(guestAddress, size)) ||
-            (isWritten && !isTexelBuffer && _gpuModifiedRanges.Contains(guestAddress, size)))
+        var nothingToUpload = isWritten
+            ? _gpuModifiedRanges.Contains(guestAddress, size)
+            : !_tracker.MayHaveCpuDirtyPages(guestAddress, size);
+        if (nothingToUpload)
         {
             if (BufferUploadProfile.Enabled)
                 BufferUploadProfile.Record(guestAddress, size, 0, 0, 0, System.Diagnostics.Stopwatch.GetTimestamp() - startedAt);
-            return false;
+            return isTexelBuffer && SynchronizeTexelFromImage(buffer, guestAddress, size);
         }
 
         profileScope.SwitchPhase(isWritten
@@ -2027,18 +2029,18 @@ public sealed unsafe class GuestBufferCache : IGuestBufferStore, IDisposable
             BufferUploadProfile.Record(guestAddress, size, copies.Count, totalSize, hotBytes, elapsedTicks);
         }
 
-        if (isTexelBuffer)
-        {
-            var copiedFromImage = RequireImageCache().TrySynchronizeBufferFromImage(buffer, guestAddress, size);
-            if (copiedFromImage)
-            {
-                buffer.NoteGpuWrite(buffer.Offset(guestAddress), size);
-            }
+        return isTexelBuffer && SynchronizeTexelFromImage(buffer, guestAddress, size);
+    }
 
-            return copiedFromImage;
+    private bool SynchronizeTexelFromImage(GpuBuffer buffer, ulong guestAddress, ulong size)
+    {
+        var copiedFromImage = RequireImageCache().TrySynchronizeBufferFromImage(buffer, guestAddress, size);
+        if (copiedFromImage)
+        {
+            buffer.NoteGpuWrite(buffer.Offset(guestAddress), size);
         }
 
-        return false;
+        return copiedFromImage;
     }
 
     private GpuBuffer? FindOwner(ulong guestAddress, ulong size)
