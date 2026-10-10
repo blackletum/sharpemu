@@ -112,6 +112,9 @@ public static partial class Gen5SpirvTranslator
             _usesPixelValidMask =
                 _stage == Gen5SpirvStage.Pixel &&
                 request.Program.Instructions.Any(static instruction => instruction.Control is Gen5ExportControl { ValidMask: true });
+            _pixelExecExcludesHelpers =
+                _stage == Gen5SpirvStage.Pixel && PixelLiveExec &&
+                request.Program.Instructions.Any(static instruction => instruction.Opcode is "DsAppend" or "DsConsume");
             _enableGraphicsSubgroupOperations = _stage == Gen5SpirvStage.Compute || request.EnableGraphicsSubgroupOperations;
             _waveLaneCount = request.WaveSize == 64 ? 64u : 32u;
             _localSizeX = Math.Max(request.LocalSizeX, 1);
@@ -2043,6 +2046,11 @@ public static partial class Gen5SpirvTranslator
             }
 
             var active = Load(_boolType, _exec);
+            if (_stage == Gen5SpirvStage.Pixel)
+            {
+                active = LogicalAnd(active, _module.AddInstruction(SpirvOp.LogicalNot, _boolType, Load(_boolType, HelperInvocationInput())));
+            }
+
             var activeMask = BooleanToWaveMask(active);
             var activeLow = Narrow(activeMask);
             var activeHigh = Narrow(ShiftRightLogical64(activeMask, ULong(32)));

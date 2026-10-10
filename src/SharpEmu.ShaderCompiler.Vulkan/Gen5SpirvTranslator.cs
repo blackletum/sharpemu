@@ -67,6 +67,10 @@ public static partial class Gen5SpirvTranslator
         private readonly Gen5SpirvStage _stage;
         private readonly IReadOnlyList<Gen5PixelOutputBinding> _pixelOutputBindings;
         private readonly bool _usesPixelValidMask;
+        private readonly bool _pixelExecExcludesHelpers;
+
+        private static readonly bool PixelLiveExec = !string.Equals(
+            Environment.GetEnvironmentVariable("SHARPEMU_PS_LIVE_EXEC"), "0", StringComparison.Ordinal);
         private readonly bool _enableGraphicsSubgroupOperations;
         private readonly uint _waveLaneCount;
         private readonly IWaveLowering _waveLowering;
@@ -1147,6 +1151,10 @@ public static partial class Gen5SpirvTranslator
                 Store(_pixelValidMaskActive, _module.ConstantBool(true));
             }
             _waveLowering.InitializeMasks();
+            if (_pixelExecExcludesHelpers)
+            {
+                _waveLowering.StoreWaveMask(126, _module.AddInstruction(SpirvOp.LogicalNot, _boolType, Load(_boolType, HelperInvocationInput())));
+            }
 
             // Primitive (NGG) vertex programs rebuild EXEC from the merged wave info in s3:
             // vertex count in bits 0-7, primitive count in bits 8-15. Left at zero, EXEC
@@ -7720,7 +7728,7 @@ public static partial class Gen5SpirvTranslator
 
         private bool IsExecKnownFull(uint pc)
         {
-            if (!ExecGuardElision || !_request.EnableExecGuardElision || _pairedLanes)
+            if (!ExecGuardElision || !_request.EnableExecGuardElision || _pairedLanes || _pixelExecExcludesHelpers)
             {
                 return false;
             }
@@ -7741,7 +7749,7 @@ public static partial class Gen5SpirvTranslator
             if (!_observationPlanBuilt)
             {
                 _observationPlanBuilt = true;
-                _observationPlan = ExecSelectElimination
+                _observationPlan = ExecSelectElimination && !_pixelExecExcludesHelpers
                     ? Ir.Gen5VectorObservationAnalysis.Analyze(_request.Program, wave32: _waveLaneCount == 32)
                     : null;
             }
