@@ -1093,10 +1093,10 @@ internal static unsafe partial class VulkanVideoPresenter
                 if (hasPushData)
                 {
                     var pushStages = bindPoint == PipelineBindPoint.Graphics ? ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit : ShaderStageFlags.ComputeBit;
-                    _vk.CmdPushConstants(command, entry.Layout, pushStages, 0, PushData.ByteSize, pushData);
+                    PushConstantsShadowed(command, entry.Layout, pushStages, pushData);
                 }
 
-                if (writeIndex != 0)
+                if (writeIndex != 0 && !DescriptorsAlreadyBound(command, bindPoint, entry.Layout, writes[..writeIndex]))
                 {
                     fixed (WriteDescriptorSet* writePointer = writes)
                     {
