@@ -1420,10 +1420,12 @@ public static partial class Gen5SpirvTranslator
                 }
 
                 _execKnownFull = IsExecKnownFull(instruction.Pc);
+                _unobservedWrites = ObservationPlan()?.UnobservedWrites(instruction.Pc) ?? default;
                 var emitted = _pairedLanes && IsPairedLaneInstruction(instruction)
                     ? TryEmitPairedLaneInstruction(instruction, out error)
                     : TryEmitInstruction(instruction, out error);
                 _execKnownFull = false;
+                _unobservedWrites = default;
                 if (!emitted)
                 {
                     error = $"pc=0x{instruction.Pc:X} {instruction.Opcode}: {error}";
@@ -7719,9 +7721,29 @@ public static partial class Gen5SpirvTranslator
             return _execFullPcs.Contains(pc);
         }
 
+        private static readonly bool ExecSelectElimination = !string.Equals(
+            Environment.GetEnvironmentVariable("SHARPEMU_EXEC_SELECT_ELIMINATION"), "0", StringComparison.Ordinal);
+
+        private Ir.VectorRegisterSet _unobservedWrites;
+        private Ir.Gen5VectorObservationPlan? _observationPlan;
+        private bool _observationPlanBuilt;
+
+        private Ir.Gen5VectorObservationPlan? ObservationPlan()
+        {
+            if (!_observationPlanBuilt)
+            {
+                _observationPlanBuilt = true;
+                _observationPlan = ExecSelectElimination
+                    ? Ir.Gen5VectorObservationAnalysis.Analyze(_request.Program, wave32: _waveLaneCount == 32)
+                    : null;
+            }
+
+            return _observationPlan;
+        }
+
         private void StoreV(uint register, uint value, bool guardWithExec = true)
         {
-            if (guardWithExec && !_execKnownFull)
+            if (guardWithExec && !_execKnownFull && !_unobservedWrites.Contains(register))
             {
                 var active = Load(_boolType, _exec);
                 var oldValue = LoadV(register);
