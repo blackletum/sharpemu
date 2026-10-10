@@ -128,6 +128,12 @@ public static partial class Gen5SpirvTranslator
                 _waveLowering = new NativeWave64Lowering(this);
                 _guestLaneFromSubgroup = true;
             }
+            else if (_stage == Gen5SpirvStage.Compute &&
+                     request.HostComputeSubgroup32 &&
+                     CanRunHalfWaves(request, _physicalAxisOfLogical))
+            {
+                _waveLowering = new HalfWave64Lowering(this);
+            }
             else if (_stage == Gen5SpirvStage.Compute && request.HostComputeSubgroup32 && PairedWave64Enabled)
             {
                 _pairedLanes = true;

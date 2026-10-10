@@ -7983,7 +7983,7 @@ public static partial class Gen5SpirvTranslator
                     _uintType,
                     UInt(3),
                     value,
-                    _pairedLanes
+                    _pairedLanes || _waveLowering is HalfWave64Lowering
                         ? BitwiseAnd(lane, UInt(PairedHalfLaneCount - 1))
                         : lane);
 
