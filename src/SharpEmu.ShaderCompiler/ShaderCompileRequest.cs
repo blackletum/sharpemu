@@ -169,6 +169,8 @@ public sealed class ShaderCompileRequest
     public uint ScratchDwords { get; init; }
     public bool EnableGraphicsSubgroupOperations { get; init; } = true;
 
+    public bool MipStatisticsSubgroupReduction { get; init; }
+
     // The device supports 64-bit integer atomics on workgroup memory
     // (VkPhysicalDeviceFeatures.shaderSharedInt64Atomics). When set, the LDS
     // 64-bit atomics are emitted as real 64-bit atomics instead of a pair of

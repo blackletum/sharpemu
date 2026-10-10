@@ -18,6 +18,7 @@ public enum DescriptorBindingKind : uint
     FaultBuffer,
     FlattenedResourceTable,
     ShaderData,
+    MipStatistics,
     Count,
 }
 
@@ -342,7 +343,11 @@ public sealed class BindingLayout : IEquatable<BindingLayout>
 
     public uint DispatchThreadLimitsDword => MemoryOffsetDword + (MemoryOffsetCount + 3) / 4;
 
-    public uint ShaderDataDwordCount => DispatchThreadLimitsDword + (UsesDispatchThreadLimits ? 3u : 0u);
+    public uint MipStatisticsCount { get; init; }
+
+    public uint MipStatisticsDword => DispatchThreadLimitsDword + (UsesDispatchThreadLimits ? 3u : 0u);
+
+    public uint ShaderDataDwordCount => MipStatisticsDword + MipStatisticsCount;
 
     public bool UsesPushData => PushDataStartDword != PushData.NoStart;
 
@@ -579,7 +584,8 @@ public sealed class BindingLayout : IEquatable<BindingLayout>
         var shaderBaseDword = usesShaderBase ? (uint)userDataRegisters.Count : NoShaderBase;
         var memoryOffsetDword = (uint)userDataRegisters.Count + (usesShaderBase ? ShaderBaseDwordCount : 0);
         var memoryOffsetCount = (uint)info.Buffers.Count;
-        var shaderDataDwords = memoryOffsetDword + (memoryOffsetCount + 3) / 4 + (usesDispatchThreadLimits ? 3u : 0u);
+        var mipStatisticsCount = info.Images.Any(static image => image.MipStatistics) ? (uint)info.Images.Count : 0u;
+        var shaderDataDwords = memoryOffsetDword + (memoryOffsetCount + 3) / 4 + (usesDispatchThreadLimits ? 3u : 0u) + mipStatisticsCount;
         var pushStart = PushData.StartFor(pushDataStartDword, shaderDataDwords);
         var descriptors = new List<DescriptorBinding>();
         if (info.Buffers.Count != 0)
@@ -649,6 +655,11 @@ public sealed class BindingLayout : IEquatable<BindingLayout>
             descriptors.Add(new DescriptorBinding(DescriptorBindingKind.ShaderData, []));
         }
 
+        if (mipStatisticsCount != 0)
+        {
+            descriptors.Add(new DescriptorBinding(DescriptorBindingKind.MipStatistics, []));
+        }
+
         return new BindingLayout
         {
             PushDataStartDword = pushStart,
@@ -657,6 +668,7 @@ public sealed class BindingLayout : IEquatable<BindingLayout>
             MemoryOffsetDword = memoryOffsetDword,
             MemoryOffsetCount = memoryOffsetCount,
             UsesDispatchThreadLimits = usesDispatchThreadLimits,
+            MipStatisticsCount = mipStatisticsCount,
             UserDataRegisters = userDataRegisters,
             Descriptors = descriptors,
         };
@@ -670,6 +682,7 @@ public sealed class BindingLayout : IEquatable<BindingLayout>
         MemoryOffsetDword == other.MemoryOffsetDword &&
         MemoryOffsetCount == other.MemoryOffsetCount &&
         UsesDispatchThreadLimits == other.UsesDispatchThreadLimits &&
+        MipStatisticsCount == other.MipStatisticsCount &&
         UserDataRegisters.SequenceEqual(other.UserDataRegisters) &&
         Descriptors.Count == other.Descriptors.Count &&
         Descriptors.Zip(other.Descriptors).All(pair => pair.First.Kind == pair.Second.Kind && pair.First.Resources.SequenceEqual(pair.Second.Resources));

@@ -224,7 +224,8 @@ public static partial class Gen5SpirvTranslator
             SpirvImageDim Dimension = SpirvImageDim.Dim2D,
             uint ConversionFormat = 0,
             uint ShaderSwizzle = 0,
-            int EmulatedCompareFunction = -1);
+            int EmulatedCompareFunction = -1,
+            int ResourceIndex = -1);
 
         private readonly record struct SpirvVertexInput(
             uint Variable,
@@ -5391,6 +5392,13 @@ public static partial class Gen5SpirvTranslator
                         [.. operands]);
                     sampled = UnpackImageTexel(resource, sampled);
                 }
+
+                RecordMipStatistics(
+                    resource,
+                    imageObject,
+                    coordinates,
+                    hasZeroLod || hasLod ? lod : null,
+                    hasBias ? lodOrBias : Float(0));
             }
             else if (instruction.Opcode.StartsWith(
                          "ImageGather4",
