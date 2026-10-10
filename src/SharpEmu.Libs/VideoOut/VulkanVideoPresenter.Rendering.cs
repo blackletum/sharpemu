@@ -407,6 +407,11 @@ internal static unsafe partial class VulkanVideoPresenter
 
             if (_batchDrawCount >= (_renderingActive ? DrawsPerBatchInRenderPass : DrawsPerBatch))
             {
+                if (GpuSyncProfile.Enabled)
+                {
+                    GpuSyncProfile.CountBatchFlush();
+                }
+
                 EndRendering();
                 FlushBatchedGuestCommands();
             }
@@ -927,6 +932,11 @@ internal static unsafe partial class VulkanVideoPresenter
             };
             _vk.CmdBeginRendering(command, &rendering);
             _renderingScopesBegun++;
+            if (GpuSyncProfile.Enabled)
+            {
+                GpuSyncProfile.CountRenderingScope();
+            }
+
             _renderingActive = true;
             _renderingState = state;
         }
