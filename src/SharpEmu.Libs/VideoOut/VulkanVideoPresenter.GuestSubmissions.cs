@@ -47,13 +47,32 @@ internal static unsafe partial class VulkanVideoPresenter
         private CommandBuffer BeginBatchedGuestCommands()
         {
             var commandBuffer = CurrentRecordingBuffer();
+            OpenGuestBatch();
+            return commandBuffer;
+        }
+
+        private CommandBuffer BeginBatchedGuestStateCommands()
+        {
+            var recording = CurrentRecording();
+            OpenGuestBatch();
+            return new CommandBuffer(recording.StateHandle);
+        }
+
+        private void RequestGuestMemoryBarrier(in MemoryBarrierRequest request)
+        {
+            var recording = CurrentRecording();
+            OpenGuestBatch();
+            _scheduler.MemoryBarrierRecorder ??= RecordRequestedMemoryBarrier;
+            recording.RequestMemoryBarrier(request);
+        }
+
+        private void OpenGuestBatch()
+        {
             if (!_batchOpen)
             {
                 _batchOpen = true;
                 _batchDrawCount = 0;
             }
-
-            return commandBuffer;
         }
 
         // Submits the current recording buffer with everything the batch lists own.

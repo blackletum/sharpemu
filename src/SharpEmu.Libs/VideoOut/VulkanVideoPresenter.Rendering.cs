@@ -856,12 +856,17 @@ internal static unsafe partial class VulkanVideoPresenter
             }
 
             EndRendering();
-            var command = BeginBatchedGuestCommands();
-            _commandBuffer = command;
-            if (DeferGlobalBarriers)
+            if (DeferGlobalBarriers && BatchBarriers)
             {
                 // A guest cache flush inside this scope may be deferred to its end; this keeps
                 // everything recorded before the scope ordered before its draws either way.
+                RequestGuestMemoryBarrier(GlobalMemoryBarrier);
+            }
+
+            var command = BeginBatchedGuestCommands();
+            _commandBuffer = command;
+            if (DeferGlobalBarriers && !BatchBarriers)
+            {
                 RecordGlobalBarrier(command);
             }
 
@@ -986,7 +991,7 @@ internal static unsafe partial class VulkanVideoPresenter
         public void BindPipeline(PipelineBindPoint bindPoint, in PipelineHandle pipeline)
         {
             var entry = RequirePipelineEntry(in pipeline);
-            var command = BeginBatchedGuestCommands();
+            var command = BeginBatchedGuestStateCommands();
             if (bindPoint == PipelineBindPoint.Graphics)
             {
                 _boundGraphicsPipeline = entry;
@@ -1149,9 +1154,24 @@ internal static unsafe partial class VulkanVideoPresenter
             return true;
         }
 
+        private static readonly bool BatchBarriers =
+            Environment.GetEnvironmentVariable("SHARPEMU_BATCH_BARRIERS") != "0";
+
+        private static readonly MemoryBarrierRequest GlobalMemoryBarrier = new(
+            PipelineStageFlags.AllCommandsBit,
+            PipelineStageFlags.AllCommandsBit,
+            AccessFlags.MemoryWriteBit,
+            AccessFlags.MemoryReadBit | AccessFlags.MemoryWriteBit);
+
         private void RecordMemoryBarrier(PipelineStageFlags sourceStages, PipelineStageFlags destinationStages, AccessFlags sourceAccess, AccessFlags destinationAccess)
         {
             EndRendering();
+            if (BatchBarriers)
+            {
+                RequestGuestMemoryBarrier(new MemoryBarrierRequest(sourceStages, destinationStages, sourceAccess, destinationAccess));
+                return;
+            }
+
             var command = BeginBatchedGuestCommands();
             var barrier = new MemoryBarrier2
             {

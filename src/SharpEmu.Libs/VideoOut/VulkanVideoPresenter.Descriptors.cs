@@ -843,7 +843,7 @@ internal static unsafe partial class VulkanVideoPresenter
             using var profileScope = RenderPhaseProfile.MeasureDetail(RenderPhaseProfile.Phase.DescriptorCommit);
             var preparation = RequirePreparation();
             var entry = RequirePipelineEntry(in pipeline);
-            var command = BeginBatchedGuestCommands();
+            var command = BeginBatchedGuestStateCommands();
             _commandBuffer = command;
             var writeCount = 0;
             var bufferCount = 0;
