@@ -1003,6 +1003,8 @@ public sealed unsafe class GuestBufferCache : IGuestBufferStore, IDisposable
     private const long HotWindowLifetime = 512;
     private const int MaxEagerReadbacks = 4;
     private const int MaxAsyncReadbackAttempts = 4;
+    private const int EagerStrikeLimit = 3;
+    private const long EagerMuteBatches = 4096;
     private readonly Dictionary<ulong, HotWindow> _hotWindows = new();
     private readonly HashSet<ulong> _eagerCandidates = new();
     private readonly List<PendingDownload> _eagerDownloads = new();
@@ -1010,8 +1012,9 @@ public sealed unsafe class GuestBufferCache : IGuestBufferStore, IDisposable
     private static long _reportedEagerStarted;
     private static long _reportedEagerUsed;
     private static long _reportedEagerStale;
+    private static long _reportedEagerMuted;
 
-    private readonly record struct HotWindow(ulong Address, ulong Size, long LastHit);
+    private readonly record struct HotWindow(ulong Address, ulong Size, long LastHit, int Strikes = 0, long MutedUntil = 0);
 
     internal long EagerReadbacksStarted { get; private set; }
 
@@ -1019,7 +1022,44 @@ public sealed unsafe class GuestBufferCache : IGuestBufferStore, IDisposable
 
     private void NoteHotReadback(ulong guestAddress, ulong size)
     {
-        _hotWindows[guestAddress & ~(ReadbackWindowBytes - 1)] = new HotWindow(guestAddress, size, _batchSerial);
+        var key = guestAddress & ~(ReadbackWindowBytes - 1);
+        _hotWindows[key] = _hotWindows.TryGetValue(key, out var hot)
+            ? hot with { Address = guestAddress, Size = size, LastHit = _batchSerial }
+            : new HotWindow(guestAddress, size, _batchSerial);
+    }
+
+    internal long EagerReadbacksWasted { get; private set; }
+
+    private void NoteEagerOutcome(ulong key, bool wasted)
+    {
+        if (wasted)
+        {
+            EagerReadbacksWasted++;
+        }
+
+        if (!_hotWindows.TryGetValue(key, out var hot))
+        {
+            return;
+        }
+
+        if (!wasted)
+        {
+            if (hot.Strikes != 0)
+            {
+                _hotWindows[key] = hot with { Strikes = 0 };
+            }
+
+            return;
+        }
+
+        var strikes = hot.Strikes + 1;
+        _hotWindows[key] = strikes >= EagerStrikeLimit
+            ? hot with { Strikes = 0, MutedUntil = _batchSerial + EagerMuteBatches }
+            : hot with { Strikes = strikes };
+        if (strikes >= EagerStrikeLimit)
+        {
+            Interlocked.Increment(ref _reportedEagerMuted);
+        }
     }
 
     private void NoteHotWindowWrite(ulong guestAddress, ulong size)
@@ -1032,10 +1072,11 @@ public sealed unsafe class GuestBufferCache : IGuestBufferStore, IDisposable
         var last = (guestAddress + size - 1) & ~(ReadbackWindowBytes - 1);
         for (var key = guestAddress & ~(ReadbackWindowBytes - 1); key <= last; key += ReadbackWindowBytes)
         {
-            if (_hotWindows.TryGetValue(key, out var hot) && _batchSerial - hot.LastHit <= HotWindowLifetime)
+            if (_hotWindows.TryGetValue(key, out var hot) && _batchSerial - hot.LastHit <= HotWindowLifetime &&
+                _batchSerial >= hot.MutedUntil)
             {
                 _eagerCandidates.Add(key);
-                HotWritePending = true;
+                HotWritePending |= hot.Strikes == 0;
             }
         }
     }
@@ -1063,7 +1104,8 @@ public sealed unsafe class GuestBufferCache : IGuestBufferStore, IDisposable
 
         if ((_batchSerial & 1023) == 0)
         {
-            foreach (var key in _hotWindows.Where(pair => _batchSerial - pair.Value.LastHit > HotWindowLifetime).Select(pair => pair.Key).ToList())
+            foreach (var key in _hotWindows.Where(pair => _batchSerial - pair.Value.LastHit > HotWindowLifetime && _batchSerial >= pair.Value.MutedUntil)
+                         .Select(pair => pair.Key).ToList())
             {
                 _hotWindows.Remove(key);
             }
@@ -1083,7 +1125,7 @@ public sealed unsafe class GuestBufferCache : IGuestBufferStore, IDisposable
             }
 
             if (!_hotWindows.TryGetValue(key, out var hot) || _batchSerial - hot.LastHit > HotWindowLifetime ||
-                StartEagerReadback(hot) != EagerStart.Deferred)
+                _batchSerial < hot.MutedUntil || StartEagerReadback(hot) != EagerStart.Deferred)
             {
                 (settled ??= []).Add(key);
             }
@@ -1137,6 +1179,7 @@ public sealed unsafe class GuestBufferCache : IGuestBufferStore, IDisposable
 
         _eagerDownloads.Add(new PendingDownload
         {
+            HotKey = hot.Address & ~(ReadbackWindowBytes - 1),
             Ticket = ticket,
             Copies = copies,
             WriteTicks = writeTicks,
@@ -1245,7 +1288,7 @@ public sealed unsafe class GuestBufferCache : IGuestBufferStore, IDisposable
     internal long StalePiecesKept { get; private set; }
 
     public static string TakeAsyncReadbackReport() => FormattableString.Invariant(
-        $"[PERF][ASYNC_READBACK] applied={Interlocked.Exchange(ref _reportedApplied, 0)} retried={Interlocked.Exchange(ref _reportedRetried, 0)} published_pieces={Interlocked.Exchange(ref _reportedPublishedPieces, 0)} stale_pieces={Interlocked.Exchange(ref _reportedStalePieces, 0)} eager_started={Interlocked.Exchange(ref _reportedEagerStarted, 0)} eager_used={Interlocked.Exchange(ref _reportedEagerUsed, 0)} eager_stale={Interlocked.Exchange(ref _reportedEagerStale, 0)}");
+        $"[PERF][ASYNC_READBACK] applied={Interlocked.Exchange(ref _reportedApplied, 0)} retried={Interlocked.Exchange(ref _reportedRetried, 0)} published_pieces={Interlocked.Exchange(ref _reportedPublishedPieces, 0)} stale_pieces={Interlocked.Exchange(ref _reportedStalePieces, 0)} eager_started={Interlocked.Exchange(ref _reportedEagerStarted, 0)} eager_used={Interlocked.Exchange(ref _reportedEagerUsed, 0)} eager_stale={Interlocked.Exchange(ref _reportedEagerStale, 0)} eager_muted={Interlocked.Exchange(ref _reportedEagerMuted, 0)}");
 
     private sealed record PendingDownload
     {
@@ -1258,6 +1301,7 @@ public sealed unsafe class GuestBufferCache : IGuestBufferStore, IDisposable
         public required ulong Size { get; init; }
         public required bool IsWrite { get; init; }
         public bool Eager { get; init; }
+        public ulong HotKey { get; init; }
         public required GuestMemoryProfile.ReadbackSource Source { get; init; }
         public required long Started { get; init; }
     }
@@ -1369,6 +1413,11 @@ public sealed unsafe class GuestBufferCache : IGuestBufferStore, IDisposable
             }
 
             var stale = copies.Count - published;
+            if (pending.Eager)
+            {
+                NoteEagerOutcome(pending.HotKey, stale != 0);
+            }
+
             if (stale != 0)
             {
                 StalePiecesKept += stale;
