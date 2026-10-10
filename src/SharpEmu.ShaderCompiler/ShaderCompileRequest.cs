@@ -164,6 +164,7 @@ public sealed class ShaderCompileRequest
     public uint WaveSize { get; init; } = 32;
     // True when the pipeline runs on a 64-lane host subgroup, so one subgroup is one guest Wave64.
     public bool HostWave64Supported { get; init; }
+    public bool HostComputeSubgroup32 { get; init; }
     public bool EnableExecGuardElision { get; init; } = true;
     public uint ScratchDwords { get; init; }
     public bool EnableGraphicsSubgroupOperations { get; init; } = true;
