@@ -119,6 +119,8 @@ internal static unsafe partial class VulkanVideoPresenter
             public ulong Generation;
             public TextureRequestResolution Resolution;
             public ResourceSlotIdentifier Found;
+            public uint MetadataBaseLayer;
+            public bool CompletesLookup;
 
             public readonly bool Matches(uint[] words, ulong generation) =>
                 Words is not null && Generation == generation && words.AsSpan().SequenceEqual(Words);
@@ -167,22 +169,28 @@ internal static unsafe partial class VulkanVideoPresenter
             {
                 resolution = memo.Resolution;
                 imageIdentifier = memo.Found;
+                if (memo.CompletesLookup)
+                {
+                    _imageCache.CompleteLookup(imageIdentifier, resolution.Request, memo.MetadataBaseLayer);
+                }
             }
             else
             {
                 resolution = ImageRequestBuilders.Texture(words, ShapeOf(image));
                 var request = resolution.Request;
+                var metadataBaseLayer = request.View.BaseLayer;
                 imageIdentifier = _imageCache.FindImage(ref request, resolution.ExactFormat);
                 resolution = resolution with { Request = request };
-                // An empty range or DCC metadata needs the full lookup on every draw.
-                memo = !ImageDescription.IsEmptyRange(request.Description.Data) &&
-                    _imageCache.GetImage(imageIdentifier).Description.DccSliceSize == 0
+                memo = !ImageDescription.IsEmptyRange(request.Description.Data)
                     ? new ImageBindingMemo
                     {
                         Words = (uint[])words.Clone(),
                         Generation = _imageCache.LookupGeneration,
                         Resolution = resolution,
                         Found = imageIdentifier,
+                        MetadataBaseLayer = metadataBaseLayer,
+                        CompletesLookup = request.Description.Metadata.Kind == MetadataKind.Dcc ||
+                            _imageCache.GetImage(imageIdentifier).Description.DccSliceSize != 0,
                     }
                     : default;
             }
