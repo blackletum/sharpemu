@@ -367,6 +367,11 @@ public sealed partial class GpuCommandInterpreter
 
         var bufferSize = payload[0];
         var destination = (payload[1] & 0xFFFF_FFC0u) | ((ulong)payload[2] << 32);
+        if (destination != 0 && bufferSize != 0 && _host.TryRecordLodStatistics(destination, bufferSize))
+        {
+            return 4;
+        }
+
         if (destination != 0 && bufferSize != 0)
         {
             var report = new byte[bufferSize];

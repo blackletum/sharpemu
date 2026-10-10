@@ -680,6 +680,7 @@ internal sealed class ShaderProgramCache
                     SupportsPerVertexPixelInputs = _host.PerVertexPixelInputsSupported,
                     PixelInputAddress = options.PixelInputAddress,
                     PixelInputCntl = interpolators,
+                    MipStatisticsSubgroupReduction = _host.MipStatisticsSubgroupReduction,
                 };
             }
 

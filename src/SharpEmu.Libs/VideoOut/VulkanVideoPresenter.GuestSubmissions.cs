@@ -182,6 +182,7 @@ internal static unsafe partial class VulkanVideoPresenter
             }
 
             _commandStream.NotifyCompletedGpuTick(_scheduler.Timeline.CompletedTick);
+            PublishLodStatistics();
 
             ProcessDeferredTextureDestroys();
         }

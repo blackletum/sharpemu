@@ -664,6 +664,12 @@ internal static unsafe partial class VulkanVideoPresenter
             }
 
             prepared.Descriptors.Buffers = views;
+            if (layout.MipStatisticsCount != 0)
+            {
+                LodStatistics().EnsureInitialized();
+                WriteMipStatisticsFields(shaderData, layout, info, snapshot.Images);
+            }
+
             if (layout.Find(DescriptorBindingKind.FlattenedResourceTable) is not null)
             {
                 prepared.Descriptors.FlattenedTable = UploadDwords(snapshot.FlattenedResourceTable, "flattened resource table", program);
@@ -996,6 +1002,9 @@ internal static unsafe partial class VulkanVideoPresenter
                                         bufferInfos[bufferIndex++] = new DescriptorBufferInfo { Buffer = view.Buffer, Offset = view.Offset, Range = view.Range };
                                     }
 
+                                    break;
+                                case DescriptorBindingKind.MipStatistics:
+                                    bufferInfos[bufferIndex++] = MipStatisticsDescriptor();
                                     break;
                                 case DescriptorBindingKind.DeviceAddressPageTable:
                                 case DescriptorBindingKind.FaultBuffer:

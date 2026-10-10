@@ -41,6 +41,8 @@ internal interface IShaderPipelineHost
 
     bool ComputeRunsOn32LaneSubgroups(ComputeInputInfo input) => false;
 
+    bool MipStatisticsSubgroupReduction => false;
+
     bool GraphicsSubgroupOperationsEnabled { get; }
 
     // The device supports shaderSharedInt64Atomics, so LDS 64-bit atomics can be
