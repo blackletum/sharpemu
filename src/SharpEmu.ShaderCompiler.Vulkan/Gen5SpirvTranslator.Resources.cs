@@ -128,6 +128,11 @@ public static partial class Gen5SpirvTranslator
                 _waveLowering = new NativeWave64Lowering(this);
                 _guestLaneFromSubgroup = true;
             }
+            else if (_stage == Gen5SpirvStage.Compute && request.HostComputeSubgroup32 && PairedWave64Enabled)
+            {
+                _pairedLanes = true;
+                _waveLowering = new PairedWave64Lowering(this);
+            }
             else
             {
                 _waveLowering = new EmulatedWave64Lowering(this);
@@ -1897,6 +1902,19 @@ public static partial class Gen5SpirvTranslator
             var index = GlobalDataShareIndex(baseAddress, offset);
             var inBounds = LogicalAnd(IsNotZero(sizeBytes), IsBlockWordInRange(_globalDataShare, index));
             var destination = instruction.Destinations[0].Value;
+            if (_pairedLanes)
+            {
+                EmitPairedWaveCounter(destination, inBounds, count => EmitAtomic(
+                    instruction.Opcode == "DsAppend" ? SpirvOp.AtomicIAdd : SpirvOp.AtomicISub,
+                    _uintType,
+                    BlockWordPointer(_globalDataShare, index),
+                    scope: 1,
+                    semantics: 0x48,
+                    value: () => count,
+                    comparator: () => UInt(0)));
+                return true;
+            }
+
             var active = Load(_boolType, _exec);
             var activeMask = BooleanToWaveMask(active);
             var activeLow = Narrow(activeMask);
