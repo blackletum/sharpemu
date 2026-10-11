@@ -244,6 +244,7 @@ public sealed unsafe class GuestBufferCache : IGuestBufferStore, IDisposable
             if (Diagnostics.DccWriterTrace.Enabled)
             {
                 Diagnostics.DccWriterTrace.Record(RequireImageCache(), guestAddress, size);
+                Diagnostics.DccWriterTrace.RecordWrite(guestAddress, size);
             }
 
             if (!_gpuModifiedRanges.Contains(guestAddress, size))
@@ -412,6 +413,11 @@ public sealed unsafe class GuestBufferCache : IGuestBufferStore, IDisposable
         var (destination, destinationOffset) = ObtainBuffer(guestAddress, size, true, true, bufferIdentifier);
         destination.Fill(destinationOffset, size, value);
         if (images.OverlapsDccMetadata(guestAddress, size) && TryWriteFillToBacking(guestAddress, size, value))
+        if (Diagnostics.DccWriterTrace.Enabled)
+        {
+            Diagnostics.DccWriterTrace.CurrentKind = "fill";
+        }
+
         {
             _gpuModifiedRanges.Remove(guestAddress, size);
             Interlocked.Increment(ref _gpuModifiedVersion);
@@ -642,6 +648,11 @@ public sealed unsafe class GuestBufferCache : IGuestBufferStore, IDisposable
         var (dst, dstOffset) = dstMemory ? ObtainBuffer(dstVaddr, size, true, true, dstId) : (_gds, dstVaddr);
         if (ReferenceEquals(src, dst) && srcOffset < dstOffset + size && dstOffset < srcOffset + size)
         {
+        if (Diagnostics.DccWriterTrace.Enabled)
+        {
+            Diagnostics.DccWriterTrace.CurrentKind = $"copy_from_0x{srcVaddr:X}";
+        }
+
             throw SubmissionScheduler.Fatal("The resolved Vulkan copy ranges overlap.");
         }
 

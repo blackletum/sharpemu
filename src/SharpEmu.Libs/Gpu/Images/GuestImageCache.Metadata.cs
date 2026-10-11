@@ -436,6 +436,11 @@ public sealed partial class GuestImageCache
         if (IsValidRange(address, size) && _bufferCache.HasGpuDirtyBytes(address, size))
         {
             Interlocked.Increment(ref _dccSyncs);
+            if (Diagnostics.DccWriterTrace.Enabled)
+            {
+                Diagnostics.DccWriterTrace.ReportSync(address, size);
+            }
+
             _ = _bufferCache.TrySynchronizeCpuRead(address, size);
         }
     }
