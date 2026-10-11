@@ -14,6 +14,7 @@ public sealed class MipStatistics
     public const uint CounterWords = 257;
     public const ulong CounterBufferBytes = 2 * CounterWords * sizeof(uint);
     public const uint NoCounterField = 0x8000;
+    public const uint ReportWithoutCounters = 1;
 
     private const int CounterBytes = 2 * sizeof(uint);
     private const uint FinestMip = 0;
@@ -67,6 +68,15 @@ public sealed class MipStatistics
             var counter = report.Slice(start, CounterBytes);
             BinaryPrimitives.WriteUInt32LittleEndian(counter, count | ((uint)slot << 24));
             BinaryPrimitives.WriteUInt32LittleEndian(counter[sizeof(uint)..], level << 24);
+        }
+    }
+
+    public void WriteReport(Span<byte> report)
+    {
+        var hasCounters = TryWriteReport(report);
+        if (report.Length >= sizeof(uint))
+        {
+            BinaryPrimitives.WriteUInt32LittleEndian(report, hasCounters ? FirstCounterOffset : ReportWithoutCounters);
         }
     }
 
