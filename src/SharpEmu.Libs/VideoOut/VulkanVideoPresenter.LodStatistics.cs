@@ -13,7 +13,7 @@ namespace SharpEmu.Libs.VideoOut;
 internal static unsafe partial class VulkanVideoPresenter
 {
     private static readonly bool GpuLodStatistics =
-        !string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_LOD_STATS"), "synthetic", StringComparison.Ordinal);
+        string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_LOD_STATS"), "gpu", StringComparison.Ordinal);
 
     private static int _fragmentSubgroupArithmetic;
 
