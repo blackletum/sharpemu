@@ -795,6 +795,10 @@ public sealed class ResourceMaterializationCache
     private static long _totalStale;
     private static long _totalStaleUnreadable;
     private static long _totalRefreshes;
+    private static long _totalNotFound;
+    private static readonly long[] _refreshRefusals = new long[6];
+    private static readonly string[] RefreshRefusalNames = ["not_refreshable", "unreadable", "descriptor_words", "unchanged", "table_eval", "rebased"];
+    private int _lastRefreshRefusal;
 
 
     [ThreadStatic]
@@ -820,9 +824,11 @@ public sealed class ResourceMaterializationCache
         var stale = Interlocked.Exchange(ref _totalStale, 0);
         var staleUnreadable = Interlocked.Exchange(ref _totalStaleUnreadable, 0);
         var refreshes = Interlocked.Exchange(ref _totalRefreshes, 0);
+        var notFound = Interlocked.Exchange(ref _totalNotFound, 0);
+        var refusals = string.Join(",", RefreshRefusalNames.Select((name, index) => FormattableString.Invariant($"{name}:{Interlocked.Exchange(ref _refreshRefusals[index], 0)}")));
         var total = hits + misses;
         return FormattableString.Invariant(
-            $"[PERF][RESOURCE_CACHE] hits={hits} misses={misses} stale={stale} stale_unreadable={staleUnreadable} refreshes={refreshes} uncacheable={uncacheable} hit_rate={(total == 0 ? 0 : hits * 100.0 / total):F1}% {RawReadPrefetch.TakeReport()}");
+            $"[PERF][RESOURCE_CACHE] hits={hits} misses={misses} not_found={notFound} stale={stale} stale_unreadable={staleUnreadable} refreshes={refreshes} refused={refusals} uncacheable={uncacheable} hit_rate={(total == 0 ? 0 : hits * 100.0 / total):F1}% {RawReadPrefetch.TakeReport()}");
     }
 
     // The first part a cached result differs from a fresh one in, or null when they are the same.
@@ -916,6 +922,7 @@ public sealed class ResourceMaterializationCache
             // Each variant is tried: a key's variants are often the same draw with different
             // descriptors (materials), and only the one this draw binds can be rebased.
             Entry? refreshedFrom = null;
+            _lastRefreshRefusal = 0;
             Entry? beforeRefreshed = null;
             if (stale is not null && rebase.HasLearnableMemoryBases)
             {
@@ -964,8 +971,13 @@ public sealed class ResourceMaterializationCache
             }
 
             Interlocked.Increment(ref _totalStale);
+            Interlocked.Increment(ref _refreshRefusals[refreshedFrom is not null ? 5 : _lastRefreshRefusal]);
             if (unreadable)
                 Interlocked.Increment(ref _totalStaleUnreadable);
+        }
+        else
+        {
+            Interlocked.Increment(ref _totalNotFound);
         }
 
         Misses++;
@@ -1048,6 +1060,7 @@ public sealed class ResourceMaterializationCache
         ResidentGuestBytesReader residentReader, AddressRebase rebase, out Entry refreshed)
     {
         refreshed = null!;
+        _lastRefreshRefusal = 0;
         if (!cached.TableRefreshable)
             return false;
 
@@ -1063,7 +1076,10 @@ public sealed class ResourceMaterializationCache
         for (var index = 0; index < cached.RangeAddresses.Length; index++)
         {
             if (!residentReader(moved[index], current.AsSpan(cached.RangeOffsets[index], cached.RangeLengths[index]), cached.RangeClean[index]))
+            {
+                _lastRefreshRefusal = 1;
                 return false;
+            }
         }
 
         var changed = false;
@@ -1072,12 +1088,21 @@ public sealed class ResourceMaterializationCache
             if (current.AsSpan(offset, sizeof(uint)).SequenceEqual(cached.Bytes.AsSpan(offset, sizeof(uint))))
                 continue;
             if (!cached.WordTableOnly[offset / sizeof(uint)])
+            {
+                _lastRefreshRefusal = 2;
                 return false;
+            }
+
             changed = true;
         }
 
         if (!changed)
+        {
+            _lastRefreshRefusal = 3;
             return false;
+        }
+
+        _lastRefreshRefusal = 4;
 
         var recorder = TakeRecorder();
         try
