@@ -361,7 +361,10 @@ public sealed unsafe class GuestBufferCache : IGuestBufferStore, IDisposable
         }
     }
 
-    public void FillBuffer(ulong guestAddress, ulong size, uint value, bool isGds)
+    public void FillBuffer(ulong guestAddress, ulong size, uint value, bool isGds) =>
+        FillBuffer(guestAddress, size, value, isGds, publishFill: false);
+
+    private void FillBuffer(ulong guestAddress, ulong size, uint value, bool isGds, bool publishFill)
     {
         if ((guestAddress & 3) != 0 || size == 0 || (size & 3) != 0 || size > ulong.MaxValue - guestAddress)
         {
@@ -410,14 +413,14 @@ public sealed unsafe class GuestBufferCache : IGuestBufferStore, IDisposable
 
         images.InvalidateMemoryFromGpu(guestAddress, size);
         var bufferIdentifier = FindBuffer(guestAddress, size);
-        var (destination, destinationOffset) = ObtainBuffer(guestAddress, size, true, true, bufferIdentifier);
-        destination.Fill(destinationOffset, size, value);
-        if (images.OverlapsDccMetadata(guestAddress, size) && TryWriteFillToBacking(guestAddress, size, value))
         if (Diagnostics.DccWriterTrace.Enabled)
         {
             Diagnostics.DccWriterTrace.CurrentKind = "fill";
         }
 
+        var (destination, destinationOffset) = ObtainBuffer(guestAddress, size, true, true, bufferIdentifier);
+        destination.Fill(destinationOffset, size, value);
+        if ((publishFill || images.OverlapsDccMetadata(guestAddress, size)) && TryWriteFillToBacking(guestAddress, size, value))
         {
             _gpuModifiedRanges.Remove(guestAddress, size);
             Interlocked.Increment(ref _gpuModifiedVersion);
@@ -466,7 +469,7 @@ public sealed unsafe class GuestBufferCache : IGuestBufferStore, IDisposable
         if (guestAddress == 0 || (guestAddress & 3) != 0 || size == 0 || (size & 3) != 0 || size > ulong.MaxValue - guestAddress ||
             HasGpuDirtyBytes(guestAddress, size))
         {
-            FillBuffer(guestAddress, size, value, false);
+            FillBuffer(guestAddress, size, value, false, publishFill: true);
             return;
         }
 
@@ -476,7 +479,7 @@ public sealed unsafe class GuestBufferCache : IGuestBufferStore, IDisposable
         var region = images.QueryRegion(guestAddress, size);
         if (region.GpuImageBytes)
         {
-            FillBuffer(guestAddress, size, value, false);
+            FillBuffer(guestAddress, size, value, false, publishFill: true);
             return;
         }
 
@@ -489,7 +492,7 @@ public sealed unsafe class GuestBufferCache : IGuestBufferStore, IDisposable
         destination.Fill(destinationOffset, size, value);
         if (!TryWriteFillToBacking(guestAddress, size, value))
         {
-            FillBuffer(guestAddress, size, value, false);
+            FillBuffer(guestAddress, size, value, false, publishFill: true);
         }
     }
 
@@ -645,14 +648,14 @@ public sealed unsafe class GuestBufferCache : IGuestBufferStore, IDisposable
         var srcId = srcMemory ? FindBuffer(srcVaddr, size) : default;
         var dstId = dstMemory ? FindBuffer(dstVaddr, size) : default;
         var (src, srcOffset) = srcMemory ? ObtainBuffer(srcVaddr, size, false, true, srcId) : (_gds, srcVaddr);
-        var (dst, dstOffset) = dstMemory ? ObtainBuffer(dstVaddr, size, true, true, dstId) : (_gds, dstVaddr);
-        if (ReferenceEquals(src, dst) && srcOffset < dstOffset + size && dstOffset < srcOffset + size)
-        {
         if (Diagnostics.DccWriterTrace.Enabled)
         {
             Diagnostics.DccWriterTrace.CurrentKind = $"copy_from_0x{srcVaddr:X}";
         }
 
+        var (dst, dstOffset) = dstMemory ? ObtainBuffer(dstVaddr, size, true, true, dstId) : (_gds, dstVaddr);
+        if (ReferenceEquals(src, dst) && srcOffset < dstOffset + size && dstOffset < srcOffset + size)
+        {
             throw SubmissionScheduler.Fatal("The resolved Vulkan copy ranges overlap.");
         }
 

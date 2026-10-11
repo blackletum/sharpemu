@@ -1299,13 +1299,23 @@ internal static unsafe partial class VulkanVideoPresenter
 
         public bool TryFillDccMetadata(ulong address, ulong size, uint fillValue)
         {
-            if (!_imageCache.OverlapsDccMetadata(address, size))
+            if (!_imageCache.OverlapsDccMetadata(address, size) && !IsMetadataShapedFill(address, size, fillValue))
             {
                 return false;
             }
 
             _bufferCache.FillDccMetadata(address, size, fillValue);
             return true;
+        }
+
+        private bool IsMetadataShapedFill(ulong address, ulong size, uint fillValue)
+        {
+            const ulong metadataBlockSize = 0x1000;
+            const ulong maxMetadataFill = 0x100000;
+            return address != 0 && size != 0 && size <= maxMetadataFill &&
+                   address % metadataBlockSize == 0 && size % metadataBlockSize == 0 &&
+                   fillValue == (fillValue & 0xFF) * 0x01010101u &&
+                   !_imageCache.QueryRegion(address, size).ImageBytes;
         }
 
         public bool TryCopyWordsOnHost(ulong destination, ulong source, ulong sourceWords, ulong words) =>
