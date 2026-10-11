@@ -39,7 +39,18 @@ internal static unsafe partial class VulkanVideoPresenter
 
         bool Gpu.GpuCommands.ICommandStreamHost.TryRecordLodStatistics(ulong destination, uint size)
         {
-            if (!ResourceMaterializer.RecordMipStatistics || size < MipStatistics.ReportBytes)
+            if (!ResourceMaterializer.RecordMipStatistics)
+            {
+                if (!OnCommandThread)
+                {
+                    return false;
+                }
+
+                _commandThread!.PostRange(() => WriteBindingLodStatistics(destination, size), destination, size);
+                return true;
+            }
+
+            if (size < MipStatistics.ReportBytes)
             {
                 return false;
             }
@@ -60,6 +71,16 @@ internal static unsafe partial class VulkanVideoPresenter
             EndRendering();
             _ = BeginBatchedGuestCommands();
             LodStatistics().Record(destination, size);
+        }
+
+        private void WriteBindingLodStatistics(ulong destination, uint size)
+        {
+            var report = new byte[size];
+            MipStatistics.Shared.WriteReport(report);
+            if (!((Gpu.GpuCommands.ICommandStreamHost)this).Memory.TryWrite(destination, report))
+            {
+                throw SubmissionScheduler.Fatal($"The LOD statistics report could not be written: address=0x{destination:X16} size={report.Length}.");
+            }
         }
 
         private void PublishLodStatistics()
