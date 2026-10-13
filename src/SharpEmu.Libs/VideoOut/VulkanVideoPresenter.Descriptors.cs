@@ -151,6 +151,45 @@ internal static unsafe partial class VulkanVideoPresenter
         }
 
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _tracedTextureBindings = new();
+        // The last lookup of one image of one program. A draw binds the same descriptor as the
+        // previous draw of its program most of the time; while no image the lookup could find has
+        // changed (the cache's lookup generation), the request and the image found are the same.
+        private struct ImageBindingMemo
+        {
+            public uint[]? Words;
+            public ulong Generation;
+            public TextureRequestResolution Resolution;
+            public ResourceSlotIdentifier Found;
+            public uint MetadataBaseLayer;
+            public bool CompletesLookup;
+
+            public readonly bool Matches(uint[] words, ulong generation) =>
+                Words is not null && Generation == generation && words.AsSpan().SequenceEqual(Words);
+        }
+
+        private Dictionary<ShaderProgramInfo, ImageBindingMemo[]>? _imageBindingMemos;
+        private ShaderProgramInfo? _lastMemoProgram;
+        private ImageBindingMemo[] _lastMemos = [];
+
+        // A draw's images resolve one after another for one program, so the last program's memos
+        // are kept at hand.
+        private ref ImageBindingMemo ImageBindingMemoOf(ShaderProgramInfo program, int index)
+        {
+            if (!ReferenceEquals(program, _lastMemoProgram) || index >= _lastMemos.Length)
+            {
+                var all = _imageBindingMemos ??= new Dictionary<ShaderProgramInfo, ImageBindingMemo[]>(ReferenceEqualityComparer.Instance);
+                if (!all.TryGetValue(program, out var memos) || index >= memos.Length)
+                {
+                    Array.Resize(ref memos, Math.Max(index + 1, program.Resources?.Info.Images.Count ?? 0));
+                    all[program] = memos;
+                }
+
+                _lastMemoProgram = program;
+                _lastMemos = memos;
+            }
+
+            return ref _lastMemos[index];
+        }
 
         // Render-state discovery for one shader image; the view is acquired later with the draw.
         private TextureResource ResolveImageBinding(ImageResource image, uint[] words, ShaderProgramInfo program, int index)
