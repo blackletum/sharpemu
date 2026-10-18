@@ -4494,10 +4494,6 @@ public static partial class Gen5SpirvTranslator
                 DoubleType(),
                 unchecked((ulong)BitConverter.DoubleToInt64Bits(value)));
 
-        // FP64 operands live in a register pair. The gfx10 inline-constant
-        // and literal encodings follow different expansion rules than the
-        // integer 64-bit forms, so refuse them instead of reading the wrong
-        // bits as a double.
         private bool TryGetDoubleSource(
             Gen5ShaderInstruction instruction,
             int sourceIndex,
@@ -4507,14 +4503,19 @@ public static partial class Gen5SpirvTranslator
             error = string.Empty;
             value = 0;
             var operand = instruction.Sources[sourceIndex];
-            if (operand.Kind != Gen5OperandKind.VectorRegister &&
-                operand.Kind != Gen5OperandKind.ScalarRegister)
+            if (operand.Kind is Gen5OperandKind.VectorRegister or Gen5OperandKind.ScalarRegister)
             {
-                error = $"FP64 source {sourceIndex} of {instruction.Opcode} is not a register pair";
+                value = Bitcast(DoubleType(), GetRawSource64(instruction, sourceIndex));
+            }
+            else if (TryGetDoubleConstantBits(operand, out var bits))
+            {
+                value = _module.Constant64(DoubleType(), bits);
+            }
+            else
+            {
+                error = $"FP64 source {sourceIndex} of {instruction.Opcode} is not a register pair or a 64-bit constant";
                 return false;
             }
-
-            value = Bitcast(DoubleType(), GetRawSource64(instruction, sourceIndex));
 
             var absoluteMask = 0u;
             var negateMask = 0u;
@@ -4541,6 +4542,54 @@ public static partial class Gen5SpirvTranslator
             }
 
             return true;
+        }
+
+        private static bool TryGetDoubleConstantBits(Gen5Operand operand, out ulong bits)
+        {
+            bits = 0;
+            if (operand.Kind == Gen5OperandKind.LiteralConstant)
+            {
+                bits = (ulong)operand.Value << 32;
+                return true;
+            }
+
+            if (operand.Kind != Gen5OperandKind.EncodedConstant)
+            {
+                return false;
+            }
+
+            double? floating = operand.Value switch
+            {
+                240 => 0.5,
+                241 => -0.5,
+                242 => 1.0,
+                243 => -1.0,
+                244 => 2.0,
+                245 => -2.0,
+                246 => 4.0,
+                247 => -4.0,
+                248 => 0.15915494309189535,
+                _ => null,
+            };
+            if (floating is { } constant)
+            {
+                bits = unchecked((ulong)BitConverter.DoubleToInt64Bits(constant));
+                return true;
+            }
+
+            if (operand.Value is >= 128 and <= 192)
+            {
+                bits = operand.Value - 128;
+                return true;
+            }
+
+            if (operand.Value is >= 193 and <= 208)
+            {
+                bits = unchecked((ulong)-(long)(operand.Value - 192));
+                return true;
+            }
+
+            return false;
         }
 
         // Applies the VOP3 output modifier and clamp to a double result, then
