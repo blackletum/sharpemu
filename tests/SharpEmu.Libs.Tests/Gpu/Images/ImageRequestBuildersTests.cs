@@ -276,7 +276,8 @@ public sealed class ImageRequestBuildersTests : IClassFixture<HeadlessVulkanFixt
     [Fact]
     public void ColorTarget_EqaaUsesTheFragmentCount()
     {
-        var resolution = ImageRequestBuilders.ColorTarget(RegisterWords.Color(Base, 64, 64, samplesLog2: 2, fragmentsLog2: 1), 0xF, 0, false);
+        using var fatal = new FatalScope();
+        var resolution = ImageRequestBuilders.ColorTarget(RegisterWords.Color(Base, 64, 64, GuestTileMode.RenderTarget, samplesLog2: 2, fragmentsLog2: 1), 0xF, 0, false);
 
         Assert.NotNull(resolution);
         Assert.Equal(2u, resolution.Value.Samples);
