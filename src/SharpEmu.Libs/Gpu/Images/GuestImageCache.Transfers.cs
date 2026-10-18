@@ -251,6 +251,20 @@ public sealed unsafe partial class GuestImageCache
         }
 
         var fullSliceSize = info.Data.Size / info.Resources.Layers;
+        var rowHeight = info.IsTiled ? DepthBlock(info).BlockHeight : 1u;
+        var rowBytes = (ulong)info.Pitch * rowHeight;
+        var fittingHeight = rowBytes == 0 ? 0 : fullSliceSize / rowBytes * rowHeight;
+        if (fittingHeight == 0)
+        {
+            throw SubmissionScheduler.Fatal(
+                $"The stencil plane is smaller than one row: address=0x{info.Data.Address:X16} size=0x{info.Data.Size:X} pitch={info.Pitch} layers={info.Resources.Layers}.");
+        }
+
+        if (fittingHeight < info.Extent.Height)
+        {
+            info.Extent.Height = (uint)fittingHeight;
+        }
+
         var copies = DepthCopies(info, fullSliceSize, ImageAspectFlags.StencilBit);
         var linear = new TilerBufferSpan(source.Handle, sourceOffset, source.Size - sourceOffset);
         if (info.IsTiled)
