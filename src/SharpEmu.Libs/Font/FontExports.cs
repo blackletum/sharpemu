@@ -618,9 +618,7 @@ public static class FontExports
         var height = BitConverter.UInt32BitsToSingle((uint)heightBits);
         if (float.IsFinite(height) && height > 1)
         {
-            FontScales[ctx[CpuRegister.Rdi]] = (
-                float.IsFinite(width) && width > 1 ? Math.Clamp(width, 8, 128) : Math.Clamp(height, 8, 128),
-                Math.Clamp(height, 8, 128));
+            FontScales[ctx[CpuRegister.Rdi]] = (float.IsFinite(width) && width > 1 ? width : height, height);
         }
         return SetSuccess(ctx);
     }
