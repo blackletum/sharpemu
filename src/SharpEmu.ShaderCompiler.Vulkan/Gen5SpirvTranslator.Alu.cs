@@ -2523,6 +2523,51 @@ public static partial class Gen5SpirvTranslator
                     ? unordered
                     : _module.AddInstruction(SpirvOp.LogicalNot, _boolType, unordered);
             }
+            else if (opcode.EndsWith("F64", StringComparison.Ordinal))
+            {
+                if (!TryGetDoubleSource(instruction, 0, out var left, out error) ||
+                    !TryGetDoubleSource(instruction, 1, out var right, out error))
+                {
+                    return false;
+                }
+
+                var predicate = opcode.Replace("VCmpx", "VCmp", StringComparison.Ordinal);
+                var unordered = _module.AddInstruction(
+                    SpirvOp.LogicalOr,
+                    _boolType,
+                    _module.AddInstruction(SpirvOp.IsNan, _boolType, left),
+                    _module.AddInstruction(SpirvOp.IsNan, _boolType, right));
+                var operation = predicate switch
+                {
+                    "VCmpLtF64" => SpirvOp.FOrdLessThan,
+                    "VCmpEqF64" => SpirvOp.FOrdEqual,
+                    "VCmpLeF64" => SpirvOp.FOrdLessThanEqual,
+                    "VCmpGtF64" => SpirvOp.FOrdGreaterThan,
+                    "VCmpLgF64" => SpirvOp.FOrdNotEqual,
+                    "VCmpGeF64" => SpirvOp.FOrdGreaterThanEqual,
+                    "VCmpNeqF64" => SpirvOp.FUnordNotEqual,
+                    "VCmpNltF64" => SpirvOp.FUnordGreaterThanEqual,
+                    "VCmpNleF64" => SpirvOp.FUnordGreaterThan,
+                    "VCmpNgtF64" => SpirvOp.FUnordLessThanEqual,
+                    "VCmpNgeF64" => SpirvOp.FUnordLessThan,
+                    "VCmpNlgF64" => SpirvOp.FUnordEqual,
+                    _ => SpirvOp.Nop,
+                };
+                condition = predicate switch
+                {
+                    "VCmpFF64" => _module.ConstantBool(false),
+                    "VCmpTruF64" => _module.ConstantBool(true),
+                    "VCmpUF64" => unordered,
+                    "VCmpOF64" => _module.AddInstruction(SpirvOp.LogicalNot, _boolType, unordered),
+                    _ when operation != SpirvOp.Nop => _module.AddInstruction(operation, _boolType, left, right),
+                    _ => 0u,
+                };
+                if (condition == 0)
+                {
+                    error = $"unsupported double compare {opcode}";
+                    return false;
+                }
+            }
             else if (opcode.EndsWith("F16", StringComparison.Ordinal))
             {
                 var left = GetFloat16Source(instruction, 0);
