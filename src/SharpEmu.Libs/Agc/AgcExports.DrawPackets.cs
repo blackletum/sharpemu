@@ -149,7 +149,7 @@ public static partial class AgcExports
         TraceAgc(
             $"agc.dcb_draw_index buf=0x{commandBufferAddress:X16} " +
             $"base=0x{baseCommand:X16} draw=0x{drawCommand:X16} " +
-            $"count={indexCount} index=0x{indexAddress:X16}");
+            $"count={indexCount} index=0x{indexAddress:X16} modifier=0x{modifier:X}");
 
         return ReturnPointer(ctx, drawCommand);
     }
@@ -214,7 +214,7 @@ public static partial class AgcExports
         var commandBufferAddress = ctx[CpuRegister.Rdi];
         var indexCount = (uint)ctx[CpuRegister.Rsi];
         var modifier = ctx[CpuRegister.Rdx];
-        if (commandBufferAddress == 0 || modifier is not (0x4000_0000UL or 0x8000_0000UL))
+        if (commandBufferAddress == 0)
         {
             return ReturnPointer(ctx, 0);
         }
