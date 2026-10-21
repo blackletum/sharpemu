@@ -52,7 +52,7 @@ public sealed partial class RenderExecutor
             framebufferHeight = limits.MaxFramebufferHeight;
         }
 
-        var scissor = ResolveScissor(viewportRegisters, context.ScanMode, framebufferWidth, framebufferHeight);
+        var scissor = ResolveScissor(viewportRegisters, context.ScanMode, framebufferWidth, framebufferHeight, recoverStaleWindow: true);
         ref readonly var viewport = ref viewportRegisters.Viewports[0];
         float viewportX;
         float viewportY;
@@ -141,7 +141,8 @@ public sealed partial class RenderExecutor
     }
 
     // The screen, window, generic, viewport and clip rectangles intersected and clamped to the extent.
-    public static ScissorRectangle ResolveScissor(ScreenViewportRegisters viewport, in ScanModeRegisters scanMode, uint width, uint height)
+    public static ScissorRectangle ResolveScissor(ScreenViewportRegisters viewport, in ScanModeRegisters scanMode, uint width, uint height,
+        bool recoverStaleWindow = false)
     {
         var screen = new ScissorRectangle(viewport.ScreenScissorLeft, viewport.ScreenScissorTop, viewport.ScreenScissorRight, viewport.ScreenScissorBottom);
         var final = screen;
@@ -155,7 +156,10 @@ public sealed partial class RenderExecutor
         }
 
         var window = new ScissorRectangle(viewport.WindowScissorLeft, viewport.WindowScissorTop, viewport.WindowScissorRight, viewport.WindowScissorBottom);
-        if (window.IsSet)
+        // Some AGC submissions restore a full-target viewport after a smaller offscreen pass
+        // without rewriting PA_SC_WINDOW_SCISSOR. The stale window can be smaller in only
+        // one dimension (e.g. 75% of the target height), so check both axes independently.
+        if (window.IsSet && !(recoverStaleWindow && IsStaleOffscreenWindow(viewport, in scanMode, width, height, in window)))
         {
             if (viewport.WindowScissorWindowOffsetEnable)
             {
@@ -227,6 +231,26 @@ public sealed partial class RenderExecutor
         var maxBottom = (int)height;
         var clamped = new ScissorRectangle(
             Math.Clamp(rectangle.Left, 0, maxRight),
+    private static bool IsStaleOffscreenWindow(ScreenViewportRegisters viewport, in ScanModeRegisters scanMode,
+        uint width, uint height, in ScissorRectangle window)
+    {
+        if (!scanMode.ViewportScissorEnable || viewport.WindowScissorWindowOffsetEnable ||
+            width == 0 || height == 0 || window.Left != 0 || window.Top != 0 ||
+            window.Right <= 0 || window.Bottom <= 0 ||
+            window.Right >= width && window.Bottom >= height)
+        {
+            return false;
+        }
+
+        ref readonly var active = ref viewport.Viewports[0];
+        return !active.ScissorWindowOffsetEnable &&
+            active.ScissorLeft == 0 && active.ScissorTop == 0 &&
+            active.ScissorRight == width && active.ScissorBottom == height &&
+            MathF.Abs(active.XScale * 2f) >= width && MathF.Abs(active.YScale * 2f) >= height &&
+            MathF.Abs(active.XOffset - active.XScale) < 1f &&
+            MathF.Abs(active.YOffset - MathF.Abs(active.YScale)) < 1f;
+    }
+
             Math.Clamp(rectangle.Top, 0, maxBottom),
             Math.Clamp(rectangle.Right, 0, maxRight),
             Math.Clamp(rectangle.Bottom, 0, maxBottom));
