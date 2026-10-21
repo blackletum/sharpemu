@@ -29,9 +29,10 @@ public sealed partial class RenderExecutor
     }
 
     // The dynamic state of a draw from the context bank and the resolved targets.
-    private DynamicDrawState BuildDynamicState(ContextRegisters context, in DrawState state)
+    private DynamicDrawState BuildDynamicState(RegisterBanks banks, in DrawState state, ulong submitId, ulong packetAddress)
     {
         using var profileScope = RenderPhaseProfile.MeasureDetail(RenderPhaseProfile.Phase.DrawDynamicStatePreparation);
+        var context = banks.Context;
         var viewportRegisters = context.ScreenViewport;
         var limits = _host.Limits;
         uint framebufferWidth;
@@ -112,7 +113,7 @@ public sealed partial class RenderExecutor
         }
 
         var blend = context.BlendColor;
-        return new DynamicDrawState(
+        var dynamicState = new DynamicDrawState(
             viewportX,
             viewportY,
             viewportWidth,
@@ -138,6 +139,11 @@ public sealed partial class RenderExecutor
             state.ColorCount,
             colorWriteMask,
             context.DepthCountControl);
+        if (ScissorTrace.Instance is { Active: true } trace)
+            trace.Draw(banks, submitId, packetAddress, framebufferWidth, framebufferHeight,
+                state.ColorCount > 0 ? state.Colors[0].Resolution.BaseAddress : 0,
+                state.Depth.HasTarget ? state.Depth.Target.Target.DepthAddress : 0, in dynamicState);
+        return dynamicState;
     }
 
     // The screen, window, generic, viewport and clip rectangles intersected and clamped to the extent.
@@ -225,12 +231,6 @@ public sealed partial class RenderExecutor
         return ClampScissor(final, width, height);
     }
 
-    private static ScissorRectangle ClampScissor(ScissorRectangle rectangle, uint width, uint height)
-    {
-        var maxRight = (int)width;
-        var maxBottom = (int)height;
-        var clamped = new ScissorRectangle(
-            Math.Clamp(rectangle.Left, 0, maxRight),
     private static bool IsStaleOffscreenWindow(ScreenViewportRegisters viewport, in ScanModeRegisters scanMode,
         uint width, uint height, in ScissorRectangle window)
     {
@@ -251,6 +251,12 @@ public sealed partial class RenderExecutor
             MathF.Abs(active.YOffset - MathF.Abs(active.YScale)) < 1f;
     }
 
+    private static ScissorRectangle ClampScissor(ScissorRectangle rectangle, uint width, uint height)
+    {
+        var maxRight = (int)width;
+        var maxBottom = (int)height;
+        var clamped = new ScissorRectangle(
+            Math.Clamp(rectangle.Left, 0, maxRight),
             Math.Clamp(rectangle.Top, 0, maxBottom),
             Math.Clamp(rectangle.Right, 0, maxRight),
             Math.Clamp(rectangle.Bottom, 0, maxBottom));
