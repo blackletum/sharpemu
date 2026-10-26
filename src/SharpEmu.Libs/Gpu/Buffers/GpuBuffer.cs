@@ -147,6 +147,16 @@ public unsafe class GpuBuffer : IDisposable
 
     public Span<byte> Mapped => _mapped == null ? Span<byte>.Empty : new Span<byte>(_mapped, checked((int)Size));
 
+    public Span<byte> MappedRange(ulong offset, int length)
+    {
+        if (_mapped == null || length < 0 || offset > Size || (ulong)length > Size - offset)
+        {
+            throw SubmissionScheduler.Fatal("The mapped buffer range is invalid.");
+        }
+
+        return new Span<byte>(_mapped + offset, length);
+    }
+
     public bool IsCoherent { get; }
 
     public GpuBufferUsage Usage { get; }
