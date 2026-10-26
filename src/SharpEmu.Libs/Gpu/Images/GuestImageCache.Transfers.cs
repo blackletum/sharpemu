@@ -109,7 +109,8 @@ public sealed unsafe partial class GuestImageCache
             plan.SwapBgra16 = info.Bgra16;
         }
 
-        plan.Layout = TextureTransferLayout.Compute(format, info.Extent.Width, info.Extent.Height, info.Resources.Levels, layers, info.TileMode, info.Data.Size, allowDepthTile, volume, owner);
+        var rowPitch = direction == TransferDirection.Upload && role == ImageRole.Texture ? info.Pitch : 0u;
+        plan.Layout = TextureTransferLayout.Compute(format, info.Extent.Width, info.Extent.Height, info.Resources.Levels, layers, info.TileMode, info.Data.Size, allowDepthTile, volume, owner, rowPitch);
         plan.Regions = plan.Layout.BuildCopies();
         if (info.IsDepth)
         {
