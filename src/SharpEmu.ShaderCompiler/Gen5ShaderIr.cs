@@ -377,6 +377,9 @@ public sealed record Gen5ShaderProgram(
     public IReadOnlyList<uint> InstanceIndexRegisters { get; init; } = [8];
     public IReadOnlySet<uint> FunctionBufferAccesses { get; init; } = new HashSet<uint>();
     public bool IsFusedProgram { get; init; }
+    // First pc of the continuation half of a fused program (the HS of a merged LS/HS).
+    public uint? FusedContinuationPc { get; init; }
+    public Gen5TessellationRegisters TessellationRegisters { get; init; } = Gen5TessellationRegisters.Merged;
 
     private const uint PixelColorTargetCount = 8;
     private const int PixelColorMaskBits = 4;
