@@ -27,6 +27,37 @@ public sealed class RenderExecutorComputeTests : IDisposable
     public void Dispose() => _fatal.Dispose();
 
     [Fact]
+    public void FrontendImageCopyFallbackRunsOnlyWhenTheCommandIsRecorded()
+    {
+        var fallbackCalls = 0;
+        _pipelines.Compute = new ComputeProgram
+        {
+            ImageCopy = new(default, default, () =>
+            {
+                fallbackCalls++;
+                return new ComputeProgram { Consumed = true };
+            }),
+        };
+        var sink = new CapturedDispatch();
+        var resolver = new RenderExecutor(_host, _pipelines, sink);
+        resolver.Dispatch(5, Banks(), 1, 1, 1, 0x41);
+        Assert.Equal(0, fallbackCalls);
+        Assert.NotNull(sink.Command);
+        Assert.False(sink.Command.Skipped);
+        var recorder = new RenderRecorder(_host, _pipelines, true, returnsRecords: false);
+        recorder.Record(sink.Command);
+        Assert.Equal(1, fallbackCalls);
+    }
+
+    private sealed class CapturedDispatch : IResolvedCommandSink
+    {
+        public ResolvedDispatch? Command;
+        public long NextSequence() => 1;
+        public void Record(ResolvedDraw record) => throw new InvalidOperationException();
+        public void Record(ResolvedDispatch record) => Command = record;
+    }
+
+    [Fact]
     public void CompletedPipeline_RetriesPublicationBeforeDispatch()
     {
         _pipelines.PendingComputeCompletion = Task.CompletedTask;
