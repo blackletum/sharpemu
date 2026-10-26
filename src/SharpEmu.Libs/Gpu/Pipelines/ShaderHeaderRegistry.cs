@@ -19,14 +19,17 @@ public sealed record RegisteredShader(
     uint ContinuationSizeBytes)
 {
     public uint ContinuationScratchDwords { get; init; }
+    public IShaderFrontend? Frontend { get; init; }
+    public (ulong Address, uint SizeBytes)[] AdditionalRanges { get; init; } = [];
 
     public bool IsFused => ContinuationAddress != 0;
 
     // The code ranges the identity covers, in program order.
-    public (ulong Address, uint SizeBytes)[] CodeRanges =>
-        IsFused ? [(CodeAddress, CodeSizeBytes), (ContinuationAddress, ContinuationSizeBytes)] : [(CodeAddress, CodeSizeBytes)];
+    public (ulong Address, uint SizeBytes)[] CodeRanges => IsFused
+        ? [(CodeAddress, CodeSizeBytes), (ContinuationAddress, ContinuationSizeBytes), .. AdditionalRanges]
+        : [(CodeAddress, CodeSizeBytes), .. AdditionalRanges];
 
-    public uint TotalCodeSizeBytes => CodeSizeBytes + ContinuationSizeBytes;
+    public uint TotalCodeSizeBytes => CodeSizeBytes + ContinuationSizeBytes + (uint)AdditionalRanges.Sum(range => range.SizeBytes);
 }
 
 // The two code objects the guest joined into one program; the entry ends in a jump to the continuation.
@@ -44,16 +47,27 @@ public sealed class ShaderHeaderRegistry
     private readonly CpuContext _context;
     private readonly Func<ulong, ulong> _headerOf;
     private readonly Func<ulong, FusedProgramParts?> _fusedPartsOf;
+    private readonly IShaderFrontend? _frontend;
 
-    public ShaderHeaderRegistry(CpuContext context, Func<ulong, ulong> headerOf, Func<ulong, FusedProgramParts?> fusedPartsOf)
+    public ShaderHeaderRegistry(CpuContext context, Func<ulong, ulong> headerOf, Func<ulong, FusedProgramParts?> fusedPartsOf,
+        IShaderFrontend? frontend = null)
     {
         _context = context;
         _headerOf = headerOf;
         _fusedPartsOf = fusedPartsOf;
+        _frontend = frontend;
     }
 
     internal (ulong Address, byte[] Code)[] ReadDiagnosticCode(ulong codeAddress)
     {
+        if (_frontend is not null && _headerOf(codeAddress) == 0)
+        {
+            var shader = _frontend.ReadShader(_context, codeAddress, "diagnostic");
+            var bytes = new byte[shader.CodeSizeBytes];
+            if (!_context.Memory.TryRead(codeAddress, bytes))
+                throw new InvalidDataException("The shader code is not readable.");
+            return [(codeAddress, bytes)];
+        }
         var ranges = new List<(ulong Address, byte[] Code)>();
         void ReadRange(ulong address, ulong header)
         {
@@ -74,9 +88,20 @@ public sealed class ShaderHeaderRegistry
         return ranges.ToArray();
     }
 
-    public RegisteredShader Require(ulong codeAddress, string label)
+    public RegisteredShader Require(ulong codeAddress, string label, ReadOnlySpan<uint> userData = default)
     {
         var headerAddress = _headerOf(codeAddress);
+        if (_frontend is not null && headerAddress == 0)
+        {
+            try
+            {
+                return _frontend.ReadShader(_context, codeAddress, label, userData) with { Frontend = _frontend };
+            }
+            catch (InvalidDataException exception)
+            {
+                throw SubmissionScheduler.Fatal($"The shader binary is invalid: label={label} shader=0x{codeAddress:X16} error={exception.Message}");
+            }
+        }
         if (headerAddress == 0)
         {
             throw SubmissionScheduler.Fatal($"The shader has no registered header: label={label} shader=0x{codeAddress:X16}.");
@@ -118,6 +143,22 @@ public sealed class ShaderHeaderRegistry
         {
             ContinuationScratchDwords = continuationScratchDwords,
         };
+    }
+
+    public RegisteredShader? RequireMergedHull(ulong localAddress, ulong hullAddress, ReadOnlySpan<uint> userData)
+    {
+        if (_frontend is null || _headerOf(localAddress) != 0)
+            return null;
+        try
+        {
+            return _frontend.ReadMergedHull(_context, localAddress, hullAddress, userData) is { } shader
+                ? shader with { Frontend = _frontend }
+                : null;
+        }
+        catch (InvalidDataException exception)
+        {
+            throw SubmissionScheduler.Fatal($"The shader binary is invalid: label=merged-hull shader=0x{localAddress:X16} hull=0x{hullAddress:X16} error={exception.Message}");
+        }
     }
 
     private uint RequireCodeSize(ulong headerAddress, ulong codeAddress, string label)
