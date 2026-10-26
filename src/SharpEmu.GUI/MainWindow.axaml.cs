@@ -3098,6 +3098,7 @@ public partial class MainWindow : Window
             ? _allGames.FirstOrDefault(game =>
                 game.Path.Equals(ebootPath, GameLibraryPath.Comparison))?.TitleId
             : titleId;
+        resolvedTitleId ??= GnmRuntime.ReadApplicationInfo(ebootPath).TitleId;
         var perGame = PerGameSettings.Load(resolvedTitleId);
         var effective = EffectiveLaunchSettings.Resolve(_settings, perGame);
         var customEnvironment = CustomEnvironmentVariables.Merge(
