@@ -523,6 +523,7 @@ public sealed unsafe partial class GuestImageCache : IGuestImageCache, IGuestIma
         {
             image.Description.Stencil = StencilPlaneOfImage(image.Description, request.Description);
             RefreshStencilPlane(imageIdentifier, image, request.Description.Metadata.StencilCompressed);
+            TakeStencilOwnership(imageIdentifier, image);
         }
 
         TakeGpuOwnership(image);

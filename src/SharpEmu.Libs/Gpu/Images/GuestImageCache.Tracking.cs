@@ -533,7 +533,8 @@ public sealed partial class GuestImageCache
             {
                 var image = _slots[imageIdentifier];
                 var range = image.Description.Data;
-                if (image.IsGpuModified && !image.DepthOwner.IsValid && image.Overlaps(address, size) &&
+                // Stencil associations own GPU-only bytes too, even though their native backing belongs to the depth image.
+                if (image.IsGpuModified && image.Overlaps(address, size) &&
                     (wholeImages || address > range.Address || address + size < range.Address + range.Size) &&
                     image.SafeToDownload && !image.RawWriteAfterGpuWrite && !HasNewerHandedOverImage(imageIdentifier, image))
                 {

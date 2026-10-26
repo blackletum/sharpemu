@@ -270,9 +270,8 @@ public sealed unsafe partial class GuestImageCache
         image.UploadFromBuffer(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(copies), linear.Buffer, linear.Offset, linear.Size);
     }
 
-    private void UploadStencilPlane(CachedImage association, GpuBuffer source, ulong sourceOffset)
+    private static ImageDescription StencilPlaneDescription(CachedImage association, CachedImage destination)
     {
-        var destination = _slots[association.DepthOwner];
         var info = destination.Description;
         info.Data = association.Description.Data;
         info.GuestFormat = GuestPixelFormat.Bits8UInt;
@@ -285,7 +284,7 @@ public sealed unsafe partial class GuestImageCache
         if (info.Samples != 1 || destination.Backing.Samples != 1 || info.Resources.Layers == 0 || info.Data.Size % info.Resources.Layers != 0)
         {
             throw SubmissionScheduler.Fatal(
-                $"The stencil upload is invalid: address=0x{info.Data.Address:X16} size=0x{info.Data.Size:X} layers={info.Resources.Layers} samples={info.Samples} backingSamples={destination.Backing.Samples}.");
+                $"The stencil transfer is invalid: address=0x{info.Data.Address:X16} size=0x{info.Data.Size:X} layers={info.Resources.Layers} samples={info.Samples} backingSamples={destination.Backing.Samples}.");
         }
 
         var fullSliceSize = info.Data.Size / info.Resources.Layers;
@@ -303,6 +302,14 @@ public sealed unsafe partial class GuestImageCache
             info.Extent.Height = (uint)fittingHeight;
         }
 
+        return info;
+    }
+
+    private void UploadStencilPlane(CachedImage association, GpuBuffer source, ulong sourceOffset)
+    {
+        var destination = _slots[association.DepthOwner];
+        var info = StencilPlaneDescription(association, destination);
+        var fullSliceSize = info.Data.Size / info.Resources.Layers;
         var copies = DepthCopies(info, fullSliceSize, ImageAspectFlags.StencilBit);
         var linear = new TilerBufferSpan(source.Handle, sourceOffset, source.Size - sourceOffset);
         if (info.IsTiled)
@@ -312,6 +319,34 @@ public sealed unsafe partial class GuestImageCache
         }
 
         UploadRegions(destination, copies.ToList(), linear);
+    }
+
+    private bool TryDownloadStencilToBuffer(CachedImage association, GpuBuffer buffer)
+    {
+        var depth = _slots.TryGet(association.DepthOwner);
+        if (depth == null || !depth.Backing.Exists || depth.Description.Metadata.StencilCompressed ||
+            depth.Description.Samples != 1 || depth.Backing.Samples != 1 ||
+            !buffer.IsInBounds(association.Description.Data.Address, association.Description.Data.Size))
+            return false;
+
+        var info = StencilPlaneDescription(association, depth);
+        var fullSliceSize = info.Data.Size / info.Resources.Layers;
+        var copies = DepthCopies(info, fullSliceSize, ImageAspectFlags.StencilBit);
+        var offset = buffer.Offset(info.Data.Address);
+        if (info.IsTiled)
+        {
+            var tiles = DepthTileTransfers(info, DepthBlock(info), fullSliceSize);
+            _tiler.TileImage(depth, copies, buffer.Handle, offset, info.Data.Size, info.Data.Size,
+                System.Runtime.InteropServices.CollectionsMarshal.AsSpan(tiles));
+        }
+        else
+        {
+            for (var index = 0; index < copies.Length; index++) copies[index].BufferOffset += offset;
+            depth.DownloadToBuffer(copies, buffer.Handle, offset, info.Data.Size);
+        }
+
+        association.MarkBufferHoldsGpuContents();
+        return true;
     }
 
     private void UploadFromBuffer(CachedImage image, in ImageRequest request, GpuBuffer source, ulong sourceOffset, byte[]? backingBytes = null, uint firstLayer = 0)
@@ -674,11 +709,6 @@ public sealed unsafe partial class GuestImageCache
                 continue;
             }
 
-            if (owner.DepthOwner.IsValid)
-            {
-                owner = _slots.TryGet(owner.DepthOwner);
-            }
-
             if (owner != null && CanReadBack(owner))
             {
                 matches.Add(imageIdentifier);
@@ -707,17 +737,15 @@ public sealed unsafe partial class GuestImageCache
             return false;
         }
 
-        if (_slots.TryGet(selected) is { DepthOwner.IsValid: true } proxy)
-        {
-            selected = proxy.DepthOwner;
-        }
-
         return TryDownloadImageToBuffer(_slots[selected], buffer);
     }
 
     // Copies the levels of an image that fit into the buffer over the image's own range.
     private bool TryDownloadImageToBuffer(CachedImage image, GpuBuffer buffer)
     {
+        if (image.DepthOwner.IsValid)
+            return TryDownloadStencilToBuffer(image, buffer);
+
         ref readonly var info = ref image.Description;
         if (!buffer.IsInBounds(info.Data.Address, 1))
         {
