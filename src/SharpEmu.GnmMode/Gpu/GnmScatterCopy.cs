@@ -49,7 +49,7 @@ internal static class GnmScatterCopy
         if (payload.Length < 4 || !IsScatterCopy(memory, compute.Address))
             return false;
         var threads = compute.ThreadsX & 0xFFFF;
-        var original = compute.UserScalars.Values.AsSpan(4, 12).ToArray();
+        var original = compute.UserScalars.ValueSpan(16).Slice(4, 12).ToArray();
         var source = BufferWords.From(original.AsSpan(0, 4));
         var records = BufferWords.From(original.AsSpan(4, 4));
         var destination = BufferWords.From(original.AsSpan(8, 4));

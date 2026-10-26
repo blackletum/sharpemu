@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 using SharpEmu.HLE;
+using SharpEmu.Libs.Gpu.Rendering;
+using SharpEmu.Libs.Gpu.Scheduling;
 
 namespace SharpEmu.Libs.Gpu.GpuCommands;
 
@@ -28,7 +30,8 @@ public readonly record struct DrawIndexedArguments(
     ulong IndirectArgumentsAddress = 0,
     // The guest set no index buffer size: IndexCount is only the range seen so far and
     // must not clamp the count read from the arguments.
-    bool UnboundedIndexBuffer = false);
+    bool UnboundedIndexBuffer = false,
+    int StartInstanceUserData = -1);
 
 // Arguments of a non-indexed draw as the packet stream describes them.
 public readonly record struct DrawAutoArguments(
@@ -38,7 +41,8 @@ public readonly record struct DrawAutoArguments(
     uint InstanceCount,
     uint FirstVertex,
     uint FirstInstance,
-    DrawOffsetSource OffsetSource);
+    DrawOffsetSource OffsetSource,
+    int StartInstanceUserData = -1);
 
 public enum EndOfPipeWriteKind
 {
@@ -82,6 +86,8 @@ public interface ICommandStreamHost
 {
     ICpuMemory Memory { get; }
 
+    IRenderHost? RenderHost => this as IRenderHost;
+
     bool TryRecordLodStatistics(ulong destination, uint size) => false;
 
     // Reads guest memory the GPU may have written; the host synchronizes GPU-owned pages first.
@@ -95,8 +101,26 @@ public interface ICommandStreamHost
     // that runs work behind the stream need not complete it first.
     bool TryReadGuestWaitOperand(ulong address, Span<byte> destination) => TryReadGuestOperand(address, destination);
 
+    // Draws resolve ahead of the stream on this many worker threads; zero resolves them on the stream thread.
+    int ResolveWorkerCount => 0;
+
+    // Reads on this thread now serve a draw at this stream position: a range earlier work may still
+    // write refuses with SerialResolveRequiredException, every other read lands in the log.
+    void BeginWorkerResolve(long sequence, ResolveReadLog reads)
+    {
+    }
+
+    void EndWorkerResolve()
+    {
+    }
+
+    // At the stream position of the draw: whether the bytes a worker read are what it would read now.
+    bool ValidateWorkerReads(ResolveReadLog reads) => true;
+
     // Runs commands other threads posted to this worker. Called before every packet.
     void RunPendingCommands();
+
+    PendingCommandSignal CommandSignal => PendingCommandSignal.AlwaysRaised;
 
     // Starts a slice of a submission; the geometry snapshots were captured when it was submitted.
     void BeginSubmission(int queueId, ulong submissionId, object? geometrySnapshots);

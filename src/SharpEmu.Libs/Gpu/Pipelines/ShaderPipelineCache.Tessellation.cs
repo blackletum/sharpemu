@@ -17,7 +17,7 @@ internal sealed partial class ShaderPipelineCache
         // Carry the architectural s0:s1 pair independently of s8 and above.
         // Lowering copies these appended inputs before executing guest code.
         var data = new uint[front.Length + 2];
-        front.CopyTo(data, 0);
+        front.CopyTo(data);
         data[front.Length] = (uint)backAddress;
         data[front.Length + 1] = (uint)(backAddress >> 32);
         return data;
@@ -36,14 +36,16 @@ internal sealed partial class ShaderPipelineCache
     {
         if (_registry.RequireMergedHull(vertex.LocalAddress, vertex.HullAddress, vertex.HullUserScalars.Values) is { } joined)
         {
-            var joinedSource = PrepareSource(joined, ShaderStage.Compute, "merged-hull", vertex.HullUserScalars,
-                vertex.HullResource2.UserScalarCount, false, VertexUserDataBase);
+            var joinedHeader = new ShaderHeaderEntry(joined, ShaderHeaderRegistry.Registrations);
+            var joinedUserData = UserData(vertex.HullUserScalars, vertex.HullResource2.UserScalarCount, false, joined.CodeAddress, "merged-hull").ToArray();
+            var joinedSource = SourceOf(joinedHeader, IdentityOf(joinedHeader, joined.CodeAddress, "merged-hull"),
+                ShaderStage.Compute, joinedUserData, VertexUserDataBase, 0);
             if (_programs.Decode(joinedSource).FusedContinuationPc is not { } joinedEntry)
                 throw SubmissionScheduler.Fatal("The joined hull program has no hull entry.");
             return CompileTessellationHull(joinedSource, joined, vertex, shaderInterface, tessellation, joinedEntry);
         }
         var address = vertex.LocalAddress != 0 ? vertex.LocalAddress : vertex.HullAddress;
-        var registered = _registry.Require(address, "merged-hull");
+        var registered = _registry.Require(address, "merged-hull", vertex.HullUserScalars.Values);
         if (!registered.IsFused)
             throw SubmissionScheduler.Fatal("The tessellation path requires a registered merged local/hull program.");
         var count = vertex.HullResource2.UserScalarCount;
@@ -61,8 +63,8 @@ internal sealed partial class ShaderPipelineCache
             if (offset == ShaderRegisterOffset.SpiShaderPgmRsrc2Hs)
                 count = Math.Max(count, HullResource2.Decode(value).UserScalarCount);
         }
-        var source = PrepareSource(address, ShaderStage.Compute, "merged-hull", vertex.HullUserScalars,
-            count, false, VertexUserDataBase);
+        var source = PrepareSource(address, ShaderStage.Compute, "merged-hull",
+            UserData(vertex.HullUserScalars, count, false, address, "merged-hull").ToArray(), VertexUserDataBase, out _);
         source = source with { UserData = MergedHullUserData(vertex.HullUserScalars, count, vertex.HullUserDataAddress) };
         var decoded = _programs.Decode(source);
         if (decoded.FusedContinuationPc is not { } entry)

@@ -207,6 +207,7 @@ public static partial class Gen5SpirvTranslator
         private uint _cullDistanceCount;
         private uint _vertexIndexInput;
         private uint _instanceIndexInput;
+        private uint _baseInstanceInput;
         private uint _fragCoordInput;
         private uint _localInvocationIdInput;
         private uint _localInvocationIndexInput;
@@ -918,6 +919,19 @@ public static partial class Gen5SpirvTranslator
                     DeclareTessellationInputs();
                 }
 
+                if (_stage == Gen5SpirvStage.Vertex && _request.SupportsDrawParameters)
+                {
+                    _baseInstanceInput = _module.AddGlobalVariable(
+                        _module.TypePointer(SpirvStorageClass.Input, _uintType),
+                        SpirvStorageClass.Input);
+                    _module.AddDecoration(
+                        _baseInstanceInput,
+                        SpirvDecoration.BuiltIn,
+                        (uint)SpirvBuiltIn.BaseInstance);
+                    _interfaces.Add(_baseInstanceInput);
+                    _module.AddCapability(SpirvCapability.DrawParameters);
+                }
+
                 var outputPointer =
                     _module.TypePointer(SpirvStorageClass.Output, _vec4Type);
                 _positionOutput = _module.AddGlobalVariable(
@@ -1283,8 +1297,12 @@ public static partial class Gen5SpirvTranslator
                 {
                     StoreV(_request.Program.VertexIndexRegister, Load(_uintType, _vertexIndexInput), guardWithExec: false);
                     var instanceIndex = Load(_uintType, _instanceIndexInput);
+                    if (_baseInstanceInput != 0)
+                        instanceIndex = ISubU(instanceIndex, Load(_uintType, _baseInstanceInput));
                     foreach (var register in _request.Program.InstanceIndexRegisters)
                         StoreV(register, instanceIndex, guardWithExec: false);
+                    if (_baseInstanceInput != 0 && _request.StartInstanceUserData >= 0)
+                        StoreS(_request.UserDataBase + (uint)_request.StartInstanceUserData, Load(_uintType, _baseInstanceInput));
                 }
                 else
                 {
@@ -8529,13 +8547,8 @@ public static partial class Gen5SpirvTranslator
                 UInt(0));
         }
 
-        private uint ApplyGuestBufferByteBias(int binding, uint byteAddress)
-        {
-            {
-                // The packed memory-offset byte of this buffer, loaded at entry.
-                return IAdd(byteAddress, Load(_uintType, RuntimeBufferBiasPointer(binding)));
-            }
-        }
+        private uint ApplyGuestBufferByteBias(int binding, uint byteAddress) =>
+            IAdd(byteAddress, Load(_uintType, RuntimeBufferBiasPointer(binding)));
 
         private void StoreBufferWord(int binding, uint dwordAddress, uint value)
         {
@@ -8602,6 +8615,11 @@ public static partial class Gen5SpirvTranslator
 
         private uint IsBufferWordInRange(int binding, uint dwordAddress)
         {
+            if (_request.Bindings.UsesTableBlock)
+            {
+                return _module.AddInstruction(SpirvOp.ULessThan, _boolType, dwordAddress, TableBufferLength(binding));
+            }
+
             // Large sparse GNM bindings can exceed 2 GiB. Some drivers return zero
             // for OpArrayLength on them; retain bounds checks using the bound view's size.
             if (_request.Bindings.UsesBufferLengths)
@@ -8625,6 +8643,7 @@ public static partial class Gen5SpirvTranslator
         }
 
         private uint BufferWordPointer(int binding, uint dwordAddress) =>
+            _request.Bindings.UsesTableBlock ? TableBufferWordPointer(binding, dwordAddress) :
             _module.AddInstruction(
                 SpirvOp.AccessChain,
                 _storageUintPointer,
@@ -9073,7 +9092,7 @@ public static partial class Gen5SpirvTranslator
                     UInt(0));
             }
 
-            return _alignedPointers.Contains(pointer)
+            return _physicalPointers.Contains(pointer) || _alignedPointers.Contains(pointer)
                 ? _module.AddInstruction(SpirvOp.Load, type, pointer, 2u, 4u)
                 : _module.AddInstruction(SpirvOp.Load, type, pointer);
         }
@@ -9101,10 +9120,13 @@ public static partial class Gen5SpirvTranslator
                     UInt(0));
             }
 
-            if (_alignedPointers.Contains(pointer))
+            if (_physicalPointers.Contains(pointer) || _alignedPointers.Contains(pointer))
+            {
                 _module.AddStatement(SpirvOp.Store, pointer, value, 2u, 4u);
-            else
-                _module.AddStatement(SpirvOp.Store, pointer, value);
+                return;
+            }
+
+            _module.AddStatement(SpirvOp.Store, pointer, value);
         }
 
         private uint UInt(uint value) => _module.Constant(_uintType, value);

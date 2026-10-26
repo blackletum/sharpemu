@@ -62,6 +62,26 @@ public sealed class ShaderResourcePlan
     internal ResourceMaterializer.SpecializationGuard? SpecializationGuard;
     private int _compiledEvaluatorState;
 
+    private sealed record ProgramBox(MaterializationProgram? Program, string Ineligibility);
+
+    private ProgramBox? _materializationProgram;
+
+    internal MaterializationProgram? MaterializationProgram =>
+        (Volatile.Read(ref _materializationProgram) ?? InitializeMaterializationProgram()).Program;
+
+    internal string MaterializationProgramIneligibility =>
+        (Volatile.Read(ref _materializationProgram) ?? InitializeMaterializationProgram()).Ineligibility;
+
+    private ProgramBox InitializeMaterializationProgram()
+    {
+        var program = Resources.MaterializationProgram.Build(this, out var reason);
+        var built = new ProgramBox(program, reason);
+        return Interlocked.CompareExchange(ref _materializationProgram, built, null) ?? built;
+    }
+
+    internal object?[]? SpecializationMemos;
+    internal int NextSpecializationMemo;
+
     internal CompiledResourceEvaluator? CompiledEvaluator
     {
         get
@@ -145,13 +165,13 @@ public sealed class ShaderResourcePlan
 
     public static ShaderResourcePlan Extract(Gen5ShaderProgram program, ShaderStage stage, ulong hash, uint userDataBase, uint userDataCount,
         IReadOnlySet<uint>? fixedFunctionVertexLoads = null, Action<ShaderResourcePlan>? beforeResourceTracking = null, uint waveSize = 64,
-        bool callRecords = false, bool callMarks = false,
+        bool callRecords = false, bool callMarks = false, int dynamicUserData = -1,
         BufferDescriptorNormalizer? normalizeBufferDescriptor = null,
         ImageDescriptorNormalizer? normalizeImageDescriptor = null, Func<long>? imageNormalizationVersion = null)
     {
         // Mesh system inputs are not uniform user data, even when a GS pointer occupies s0:s1.
         var graph = ScalarGraphDiskCache.Build(program, userDataBase, userDataCount, fixedFunctionVertexLoads, waveSize,
-            excludedUserDataRegisters: stage == ShaderStage.Mesh ? 0xFCUL : 0);
+            excludedUserDataRegisters: stage == ShaderStage.Mesh ? 0xFCUL : 0, dynamicUserData: dynamicUserData);
         var plan = new ShaderResourcePlan(graph, stage, hash)
         {
             NormalizeBufferDescriptor = normalizeBufferDescriptor,

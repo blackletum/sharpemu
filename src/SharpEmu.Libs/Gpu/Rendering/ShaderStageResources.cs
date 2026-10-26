@@ -221,7 +221,15 @@ public sealed class VertexInputInfo
     public uint ScratchDwords { get; init; }
     public uint PositionExportControl { get; init; }
     public ClipSpaceTransform ClipSpace { get; init; }
+    public int StartInstanceUserData { get; set; } = -1;
     public ShaderStageResources Stage { get; set; }
+
+    public VertexInputInfo WithoutStage()
+    {
+        var copy = (VertexInputInfo)MemberwiseClone();
+        copy.Stage = default;
+        return copy;
+    }
 }
 
 public sealed record MeshDrawConfiguration
@@ -289,6 +297,13 @@ public sealed class PixelInputInfo
     public ShaderStageResources Stage { get; set; }
 
     public bool PositionXY => PositionX && PositionY;
+
+    public PixelInputInfo WithoutStage()
+    {
+        var copy = (PixelInputInfo)MemberwiseClone();
+        copy.Stage = default;
+        return copy;
+    }
 }
 
 public sealed class ComputeInputInfo

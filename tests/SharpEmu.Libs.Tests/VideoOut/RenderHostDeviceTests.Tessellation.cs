@@ -148,6 +148,10 @@ public sealed unsafe partial class RenderHostDeviceTests
         private ComputeProgram? _hull;
         private static readonly ShaderProgramInfo PixelInfo = FixedProgramProvider.EmptyProgram(ShaderStageKind.Pixel, 4);
 
+        public GraphicsPrograms GetGraphicsPrograms(RegisterBanks banks, ReadOnlySpan<ColorComponentMap> mappings,
+            bool pixelActive, bool depthBound) =>
+            GetGraphicsPrograms(banks.Shader.Vertex, banks.Shader.Pixel, banks.Context.ShaderInterface, banks.Context, mappings, pixelActive, depthBound);
+
         public GraphicsPrograms GetGraphicsPrograms(VertexStageRegisters vertex, PixelStageRegisters pixel,
             ShaderInterfaceRegisters shaderInterface, ContextRegisters context, ReadOnlySpan<ColorComponentMap> mappings,
             bool pixelActive, bool depthBound)

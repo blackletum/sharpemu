@@ -83,7 +83,8 @@ public sealed class RenderExecutorComputeTests : IDisposable
         AssertNotDispatched();
         Assert.Equal(1, _pipelines.ComputePipelineAttempts);
         Assert.DoesNotContain("preparation_begin", _host.Calls);
-        Assert.Equal("reset_bindings", _host.Calls[^1]);
+        Assert.DoesNotContain("reset_bindings", _host.Calls);
+        Assert.StartsWith("debug DispatchDirect", _host.Calls[^1]);
 
         completion.SetResult();
         _executor.Dispatch(6, Banks(), 4, 2, 1, 0x41);
@@ -193,6 +194,18 @@ public sealed class RenderExecutorComputeTests : IDisposable
         _executor.Dispatch(1, Banks(), 0, 0, 0, 0x41, 0x1000);
 
         Assert.Contains("create_compute_pipeline", _pipelines.Calls);
+    }
+
+    [Fact]
+    public void ThreadDimensionInitiator_WithNoThreads_IsSkippedBeforeTheProgramLookup()
+    {
+        var banks = Banks();
+        banks.Shader.Compute.ThreadsX = 8;
+        _executor.Dispatch(1, banks, 0, 17, 1, 0x41 | (1u << 5));
+
+        AssertNotDispatched();
+        Assert.Empty(_pipelines.Calls);
+        Assert.Equal(0, _host.PreparationsOpened);
     }
 
     [Fact]

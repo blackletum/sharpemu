@@ -25,6 +25,21 @@ public sealed class GraphicsPipelineDescription
 }
 
 public sealed record TessellationPipelineStages(ShaderProgram Control, ShaderProgram Evaluation, uint InputControlPoints);
+// Why a dispatch the CPU evaluated still runs on the GPU instead of landing as a store of the stream.
+internal enum KernelWriteRefusal
+{
+    None,
+    Unsupported,
+    Sparse,
+    Thread,
+    CrossQueue,
+    Publication,
+    PendingRange,
+    PendingWrite,
+    Image,
+    Metadata,
+    Count,
+}
 
 public sealed class ComputePipelineDescription
 {
@@ -71,6 +86,8 @@ internal interface IShaderPipelineHost
     long CallMarkSnapshots => 0;
     long CallMarkedAt(uint bit) => 0;
 
+    bool TableBlocks => false;
+
     bool GraphicsSubgroupOperationsEnabled { get; }
 
     // The device supports shaderSharedInt64Atomics, so LDS 64-bit atomics can be
@@ -85,6 +102,7 @@ internal interface IShaderPipelineHost
     ShaderPrewarmList? ShaderPrewarm => null;
     bool PerVertexPixelInputsSupported => true;
     bool ClipDistanceEnabled => false;
+    bool ShaderDrawParametersSupported => false;
 
     bool MeshShadersSupported => false;
 
@@ -116,6 +134,13 @@ internal interface IShaderPipelineHost
     bool TryReadResidentGuestBytes(ulong address, Span<byte> destination, bool clean) => false;
 
     bool TryCopyImage(in ImageRequest source, in ImageRequest destination) => false;
+    // A resident read that refuses instead of waiting for pending command-thread work.
+    bool TryPeekResidentGuestBytes(ulong address, Span<byte> destination) => false;
+
+    bool CpuWriteNeedsGpuData(ulong address, ulong size) => false;
+
+    // Queues the words as a store at the current stream position when no earlier work may still touch the range.
+    KernelWriteRefusal TryPostKernelWrite(ulong address, ReadOnlySpan<uint> words) => KernelWriteRefusal.Unsupported;
 
     // Creates the host module of one compiled permutation and returns its handle.
     ulong CreateShaderModule(IGuestCompiledShader shader, ShaderStage stage, ulong hash, ulong programId);
