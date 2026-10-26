@@ -188,8 +188,11 @@ public unsafe class GpuBuffer : IDisposable
     // Called by every path that records a GPU write into this buffer.
     public void NoteGpuWrite() => NoteGpuWrite(0, Size);
 
+    public long GpuWrites { get; private set; }
+
     public void NoteGpuWrite(ulong offset, ulong size)
     {
+        GpuWrites++;
         var tick = _scheduler.CurrentTick;
         if (tick > LastGpuWriteTick)
         {

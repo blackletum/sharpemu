@@ -732,6 +732,16 @@ public sealed unsafe class GuestBufferCache : IGuestBufferStore, IDisposable
 
     public bool HasCpuDirtyPages(ulong guestAddress, ulong size) => _tracker.HasCpuDirtyPages(guestAddress, size);
 
+    public readonly record struct ContentMark(GpuBuffer? Buffer, ulong Tick, long Writes);
+
+    public ContentMark MarkContents(ulong guestAddress, ulong size) =>
+        FindOwner(guestAddress, size) is { } owner ? new(owner, _scheduler.CurrentTick, owner.GpuWrites) : default;
+
+    public bool ContentsChangedSince(ulong guestAddress, ulong size, in ContentMark mark) =>
+        mark.Buffer is not { } buffer || _tracker.HasCpuDirtyPages(guestAddress, size) ||
+        !ReferenceEquals(FindOwner(guestAddress, size), buffer) ||
+        buffer.GpuWrites != mark.Writes && buffer.LastGpuWriteTickIn(buffer.Offset(guestAddress), size) >= mark.Tick;
+
     public void ProcessFaultBuffer() => _faults.ProcessFaultBuffer();
 
     // The registered guest memory; a device-address fault inside it brings in the window around the page.
