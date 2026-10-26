@@ -8004,6 +8004,11 @@ public static partial class Gen5SpirvTranslator
 
         private uint IsBufferWordInRange(int binding, uint dwordAddress)
         {
+            // Large sparse GNM bindings can exceed 2 GiB. Some drivers return zero
+            // for OpArrayLength on them; retain bounds checks using the bound view's size.
+            if (_request.Bindings.UsesBufferLengths)
+                return _module.AddInstruction(SpirvOp.ULessThan, _boolType, dwordAddress,
+                    LoadShaderDataDword(UInt(_request.Bindings.BufferLengthsDword + (uint)binding)));
             var buffer = _module.AddInstruction(
                 SpirvOp.AccessChain,
                 _storageBlockPointer,
