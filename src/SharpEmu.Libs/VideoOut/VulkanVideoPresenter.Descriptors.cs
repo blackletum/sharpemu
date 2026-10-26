@@ -549,6 +549,47 @@ internal static unsafe partial class VulkanVideoPresenter
             return true;
         }
 
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<(ulong Hash, int Buffer), byte> _unmappedBufferStarts = new();
+
+        private bool IsUnmappedBufferStart(PreparedStageBindings prepared, int index, ulong address)
+        {
+            if (_guestMemory.CanRead(address, 1))
+            {
+                return false;
+            }
+
+            if (_unmappedBufferStarts.TryAdd((prepared.Program.Hash, index), 0))
+            {
+                var resource = prepared.Resources.Info.Buffers[index];
+                Console.Error.WriteLine($"[GPU][WARN] A buffer descriptor starts in unmapped memory and binds as a null buffer: " +
+                    $"address=0x{address:X16} stage={prepared.Program.Stage} hash=0x{prepared.Program.Hash:X16} " +
+                    $"shader=0x{prepared.Stage.ShaderBase:X16} buffer={index} pc=0x{resource.FirstUsePc:X} " +
+                    $"written={resource.Written} descriptor=[{string.Join(",", prepared.Stage.Resources.Buffers[index].Select(word => $"{word:X8}"))}] " +
+                    $"user_data=[{string.Join(",", prepared.Stage.Resources.UserData.Select(word => $"{word:X8}"))}]" +
+                    $"{DescribeUserDataPointers(prepared.Stage.Resources.UserData)}.");
+            }
+
+            return true;
+        }
+
+        private string DescribeUserDataPointers(uint[] userData)
+        {
+            var text = new System.Text.StringBuilder();
+            Span<uint> words = stackalloc uint[12];
+            for (var index = 0; index + 1 < userData.Length; index += 2)
+            {
+                var pointer = userData[index] | ((ulong)(userData[index + 1] & 0xFFFF) << 32);
+                if ((userData[index + 1] & 0xFFFF) == 0 || !_guestMemory.TryRead(pointer, System.Runtime.InteropServices.MemoryMarshal.AsBytes(words)))
+                {
+                    continue;
+                }
+
+                text.Append($" pointer[{index}]=0x{pointer:X}:[{string.Join(",", words.ToArray().Select(word => $"{word:X8}"))}]");
+            }
+
+            return text.ToString();
+        }
+
         // The cache buffer each descriptor's range lives in; a null descriptor has none.
         private void FindBuffers(PreparedStageBindings prepared)
         {
@@ -567,7 +608,8 @@ internal static unsafe partial class VulkanVideoPresenter
                 var descriptor = BufferDescriptorWords.From(words);
                 var requested = descriptor.Footprint() ?? throw SubmissionScheduler.Fatal(
                     $"A storage buffer descriptor footprint overflows: buffer={index} stride={descriptor.Stride} records={descriptor.RecordCount} hash=0x{program.Hash:X16}.");
-                if (descriptor.Address == 0 || requested == 0 || IsUnresidentPrtPage(descriptor.Address))
+                if (descriptor.Address == 0 || requested == 0 || IsUnresidentPrtPage(descriptor.Address) ||
+                    IsUnmappedBufferStart(prepared, index, descriptor.Address))
                 {
                     sources[index] = (descriptor, default);
                     continue;
@@ -704,7 +746,7 @@ internal static unsafe partial class VulkanVideoPresenter
             memoryOffset = 0;
             var address = descriptor.Address;
             var requested = descriptor.Footprint() ?? throw SubmissionScheduler.Fatal($"A storage buffer descriptor footprint overflows: buffer={slot} hash=0x{program.Hash:X16}.");
-            if (address == 0 || requested == 0 || IsUnresidentPrtPage(address))
+            if (address == 0 || requested == 0 || IsUnresidentPrtPage(address) || !_guestMemory.CanRead(address, 1))
             {
                 return NullStorageBuffer();
             }
