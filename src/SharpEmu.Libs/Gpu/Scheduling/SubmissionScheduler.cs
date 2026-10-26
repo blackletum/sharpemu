@@ -99,6 +99,8 @@ public sealed class SubmissionScheduler : IGpuTickScheduler, IDisposable
     [ThreadStatic]
     internal static bool ThrowOnFatal;
 
+    public static bool ThrowsOnFatal => ThrowOnFatal;
+
     public sealed class AbandonedWorkException(string message) : Exception(message);
 
     // Report the fatal error, then return an exception to stop the caller.
