@@ -3,6 +3,7 @@
 
 using SharpEmu.Core.Runtime;
 using SharpEmu.Core.Cpu;
+using SharpEmu.GnmMode;
 using SharpEmu.GUI;
 using SharpEmu.HLE;
 using SharpEmu.HLE.FileSystem;
@@ -310,10 +311,13 @@ internal static partial class Program
 
         try
         {
-            using var runtime = SharpEmuRuntime.CreateDefault(runtimeOptions with
-            {
-                AdoptStartupAddressReservations = OperatingSystem.IsWindows() && isMitigatedChild,
-            });
+            var gameLoader = GnmRuntime.CreateLoader(ebootPath);
+            using var runtime = gameLoader is not null
+                ? GnmRuntime.CreateDefault(runtimeOptions, gameLoader)
+                : SharpEmuRuntime.CreateDefault(runtimeOptions with
+                {
+                    AdoptStartupAddressReservations = OperatingSystem.IsWindows() && isMitigatedChild,
+                });
 
             OrbisGen2Result result;
             ConsoleCancelEventHandler? cancelHandler = null;
