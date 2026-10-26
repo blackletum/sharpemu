@@ -15,7 +15,7 @@ using System.Threading;
 
 namespace SharpEmu.Libs.Kernel;
 
-public static class KernelRuntimeCompatExports
+public static partial class KernelRuntimeCompatExports
 {
     private const ulong TlsErrnoOffset = 0x40;
     private const ulong TlsStackChkGuardBaseOffset = 0x800;
