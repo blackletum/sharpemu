@@ -412,6 +412,13 @@ SPDX-License-Identifier: GPL-2.0-or-later
                   <TextBlock Text="{Binding VersionText}" FontSize="11" FontWeight="SemiBold"
                              Foreground="{StaticResource MutedBrush}" />
                 </Border>
+                <Border Classes="pill" IsVisible="{Binding CompatibilityMode}">
+                  <TextBlock Text="{Binding [Library.Stat.CompatibilityMode],
+                                            Source={x:Static local:Localization.Instance},
+                                            x:CompileBindings=False}"
+                             FontSize="11" FontWeight="SemiBold"
+                             Foreground="{StaticResource MutedBrush}" />
+                </Border>
                 <Border Classes="pill">
                   <TextBlock Text="{Binding SizeText}" FontSize="11" FontWeight="SemiBold"
                              Foreground="{StaticResource MutedBrush}" />
