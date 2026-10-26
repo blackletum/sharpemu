@@ -1122,6 +1122,7 @@ internal static unsafe partial class VulkanVideoPresenter
                     {
                         presentation = _pendingGuestImagePresentations.Dequeue();
                         TryReplaceWithHostMovieFrame(ref presentation);
+                        TryReplaceWithHeldSplash(ref presentation);
                         return true;
                     }
 
@@ -1162,6 +1163,7 @@ internal static unsafe partial class VulkanVideoPresenter
 
                 presentation = latest;
                 TryReplaceWithHostMovieFrame(ref presentation);
+                TryReplaceWithHeldSplash(ref presentation);
                 return true;
             }
         }
