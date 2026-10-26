@@ -373,6 +373,8 @@ public sealed record Gen5ShaderProgram(
     ulong Address,
     IReadOnlyList<Gen5ShaderInstruction> Instructions)
 {
+    public uint VertexIndexRegister { get; init; } = 5;
+    public IReadOnlyList<uint> InstanceIndexRegisters { get; init; } = [8];
     public IReadOnlySet<uint> FunctionBufferAccesses { get; init; } = new HashSet<uint>();
     public bool IsFusedProgram { get; init; }
 
