@@ -188,6 +188,7 @@ public enum SpirvOp : ushort
 public enum SpirvCapability : uint
 {
     Shader = 1,
+    Tessellation = 3,
     ShaderLayer = 69,
     InterpolationFunction = 52,
     FragmentBarycentricKhr = 5284,
@@ -240,6 +241,8 @@ public enum SpirvStorageClass : uint
 public enum SpirvExecutionModel : uint
 {
     Vertex = 0,
+    TessellationControl = 1,
+    TessellationEvaluation = 2,
     Fragment = 4,
     GLCompute = 5,
     MeshExt = 5365,
@@ -247,6 +250,15 @@ public enum SpirvExecutionModel : uint
 
 public enum SpirvExecutionMode : uint
 {
+    SpacingEqual = 1,
+    SpacingFractionalEven = 2,
+    SpacingFractionalOdd = 3,
+    VertexOrderCw = 4,
+    VertexOrderCcw = 5,
+    PointMode = 10,
+    Triangles = 22,
+    Quads = 24,
+    Isolines = 25,
     OriginUpperLeft = 7,
     DepthReplacing = 12,
     LocalSize = 17,
@@ -264,6 +276,7 @@ public enum SpirvDecoration : uint
     NoPerspective = 13,
     Flat = 14,
     PerVertexKhr = 5285,
+    Patch = 15,
     Location = 30,
     Index = 32,
     Binding = 33,
@@ -281,8 +294,14 @@ public enum SpirvBuiltIn : uint
     PointSize = 1,
     ClipDistance = 3,
     CullDistance = 4,
+    PrimitiveId = 7,
     Layer = 9,
     ViewportIndex = 10,
+    InvocationId = 8,
+    TessLevelOuter = 11,
+    TessLevelInner = 12,
+    TessCoord = 13,
+    PatchVertices = 14,
     VertexIndex = 42,
     InstanceIndex = 43,
     FragCoord = 15,
