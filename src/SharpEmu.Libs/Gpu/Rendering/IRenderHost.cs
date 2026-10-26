@@ -95,6 +95,8 @@ public interface IRenderHost
 
     bool SupportsNativeRectangles => false;
 
+    bool SupportsTessellation => false;
+
     IImageFormatSupport FormatSupport { get; }
 
     // True while a command buffer is recording.
@@ -127,6 +129,13 @@ public interface IRenderHost
 
     BufferBinding ObtainBuffer(ulong address, ulong size, bool isWritten);
 
+    void PrepareBufferAllocations(ReadOnlySpan<SharpEmu.HLE.GpuMemory.GuestSpan> ranges) =>
+        throw new NotSupportedException("The render host does not support tessellation buffer preparation.");
+
+    // The device address of a guest range's cached buffer, for shaders that read it through a physical pointer.
+    ulong ObtainBufferDeviceAddress(ulong address, ulong size, bool isWritten) =>
+        throw new NotSupportedException("The render host does not expose buffer addresses for tessellation.");
+
     void TraceVertexBuffer(ulong shaderHash, VertexAttributeResource attribute, VertexInputBuffer input,
         BufferBinding binding, ulong requestedBytes, ulong acquiredBytes) { }
 
@@ -149,6 +158,9 @@ public interface IRenderHost
     IResourcePreparation BeginPreparation();
 
     IPreparedBindings PrepareBindings(ShaderStageResources stage);
+
+    void UpdateTessellationData(IPreparedBindings prepared, uint[] data) =>
+        throw new NotSupportedException("The render host does not support tessellation runtime data.");
 
     void PrepareDeviceAddresses();
 
