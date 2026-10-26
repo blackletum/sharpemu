@@ -696,8 +696,9 @@ public static partial class Gen5MslTranslator
             else if (_stage == Gen5MslStage.Vertex)
             {
                 // Hardware-selected VGPRs for the vertex and instance indices.
-                source.AppendLine("    v[5] = sharpemu_vertex_id;");
-                source.AppendLine("    v[8] = sharpemu_instance_id;");
+                source.AppendLine($"    v[{_request.Program.VertexIndexRegister}] = sharpemu_vertex_id;");
+                foreach (var register in _request.Program.InstanceIndexRegisters)
+                    source.AppendLine($"    v[{register}] = sharpemu_instance_id;");
             }
 
             // VCC/EXEC live in their architectural SGPRs (see StoreScalar);
