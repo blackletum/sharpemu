@@ -194,9 +194,12 @@ internal static unsafe partial class VulkanVideoPresenter
 
             var storage = image.ResourceClass == ShaderCompiler.Resources.ImageResourceClass.Storage;
             _ = BeginBatchedGuestCommands();
+            program.Frontend?.PrepareTexture(words);
             var originalResolution = memo.Matches(words, _imageCache.LookupGeneration)
                 ? memo.OriginalResolution
-                : ImageRequestBuilders.Texture(words, ShapeOf(image), program.Hash, index);
+                : program.Frontend is { } frontend
+                    ? frontend.ResolveTexture(words, ShapeOf(image), program.Hash, index)
+                    : ImageRequestBuilders.Texture(words, ShapeOf(image), program.Hash, index);
             TraceImageLookup(image, words, program, index, originalResolution.Request);
             CompleteOverlappingPublications(originalResolution.Request.Description.Data.Address,
                 originalResolution.Request.Description.Data.Size, includeLabels: false);
