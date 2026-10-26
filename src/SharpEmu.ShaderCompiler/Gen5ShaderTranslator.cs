@@ -297,6 +297,18 @@ public static partial class Gen5ShaderTranslator
             Control = null,
         });
 
+        // Fused hull bindings can own a copy of a shared LS entry. Its header
+        // still names the original code, where PC-relative constants reside.
+        if (ctx.TryReadUInt64(parts.EntryHeaderAddress + 0x10, out var originalEntry) &&
+            originalEntry != 0 && originalEntry != entryAddress)
+        {
+            for (var index = 0; index < instructions.Count; index++)
+                instructions[index] = instructions[index] with
+                {
+                    AddressOffset = unchecked(originalEntry - entryAddress + instructions[index].ProgramOffset),
+                };
+        }
+
         foreach (var instruction in continuationProgram.Instructions)
         {
             var rebasedPc = (ulong)continuationPc + instruction.Pc;
@@ -312,7 +324,7 @@ public static partial class Gen5ShaderTranslator
                 : instruction with { Pc = (uint)rebasedPc, AddressOffset = unchecked(continuationDistance + instruction.ProgramOffset) });
         }
 
-        program = new Gen5ShaderProgram(entryAddress, instructions) { IsFusedProgram = true };
+        program = new Gen5ShaderProgram(entryAddress, instructions) { IsFusedProgram = true, FusedContinuationPc = continuationPc };
         error = string.Empty;
         return true;
     }
