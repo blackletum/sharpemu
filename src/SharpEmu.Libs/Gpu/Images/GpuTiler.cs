@@ -63,7 +63,7 @@ public struct TileTransferArguments
 // Runs the tiling, detiling, depth conversion and channel swap compute passes.
 public sealed unsafe class GpuTiler : IDisposable
 {
-    private const uint KindCount = 10;
+    private const uint KindCount = 11;
     private const uint ElementSizeCount = 5;
     private const uint DirectionCount = 2;
     private const uint PipelineCount = KindCount * ElementSizeCount * DirectionCount;
@@ -608,6 +608,15 @@ public sealed unsafe class GpuTiler : IDisposable
         var scratch = AllocateScratch((linearCapacity + 3) & ~3UL);
         Record(false, tiled, tiledOffset, tiledCapacity, scratch.Buffer, 0, scratch.Size, dispatches, true);
         return new TilerBufferSpan(scratch.Buffer, 0, linearCapacity);
+    }
+
+    public void Detile(VkBuffer tiled, ulong tiledOffset, ulong tiledCapacity, VkBuffer linear, ulong linearOffset, ulong linearCapacity, ReadOnlySpan<TileTransfer> transfers)
+    {
+        var sourceBase = tiledOffset & (StorageAlignment - 1);
+        var targetBase = linearOffset & (StorageAlignment - 1);
+        var dispatches = new List<TransferDispatch>();
+        Prepare(false, tiledCapacity, linearCapacity, transfers, sourceBase, targetBase, dispatches);
+        Record(false, tiled, tiledOffset, tiledCapacity, linear, linearOffset, linearCapacity, dispatches, false);
     }
 
     public void Tile(VkBuffer linear, ulong linearOffset, ulong linearCapacity, VkBuffer tiled, ulong tiledOffset, ulong tiledCapacity, ReadOnlySpan<TileTransfer> transfers)
