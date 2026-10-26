@@ -3933,7 +3933,8 @@ public static partial class Gen5SpirvTranslator
                     byteAddress,
                     descriptorWord3,
                     control.VectorData,
-                    control.DwordCount);
+                    control.DwordCount,
+                    control.SplitDescriptorFormat);
                 return true;
             }
 
@@ -4125,12 +4126,15 @@ public static partial class Gen5SpirvTranslator
             uint byteAddress,
             uint descriptorWord3,
             uint vectorData,
-            uint componentCount)
+            uint componentCount,
+            bool splitDescriptorFormat)
         {
             var unifiedFormat = BitwiseAnd(
                 ShiftRightLogical(descriptorWord3, UInt(12)),
                 UInt(0x7F));
-            var (dataFormat, numberFormat) = DecodeGfx10BufferFormat(unifiedFormat);
+            var (dataFormat, numberFormat) = splitDescriptorFormat
+                ? (ShiftRightLogical(unifiedFormat, UInt(3)), BitwiseAnd(unifiedFormat, UInt(7)))
+                : DecodeGfx10BufferFormat(unifiedFormat);
 
             var canonical = new uint[4];
             var componentBounds = new uint[4];
