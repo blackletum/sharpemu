@@ -1723,7 +1723,15 @@ public static partial class Gen5ShaderTranslator
         out string error)
     {
         var opcode = ((word >> 18) & 0x7F) | ((word & 1) << 7);
-        name = opcode switch
+        name = MubufOpcodeName(opcode);
+        sizeDwords = (extra >> 24) == 0xFF ? 3u : 2u;
+        error = string.Empty;
+        return true;
+    }
+
+    public static string MubufOpcodeName(uint opcode)
+    {
+        return opcode switch
         {
             0x00 => "BufferLoadFormatX",
             0x01 => "BufferLoadFormatXy",
@@ -1787,9 +1795,6 @@ public static partial class Gen5ShaderTranslator
             0x5A => "BufferAtomicOrX2",
             _ => $"MubufRaw{opcode:X2}",
         };
-        sizeDwords = (extra >> 24) == 0xFF ? 3u : 2u;
-        error = string.Empty;
-        return true;
     }
 
     private static bool DecodeFlat(
