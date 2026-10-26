@@ -304,6 +304,7 @@ public static partial class AgcExports
     private sealed class SubmittedGpuState
     {
         public object Gate { get; } = new();
+        public ulong TessellationFactorRingAddress { get; set; }
         public object CommandSubmissionGate { get; } = new();
         public SubmittedDcbState Graphics { get; } = new();
         // The submit-time geometry prepass shadow; only the prepass reads or writes it.
