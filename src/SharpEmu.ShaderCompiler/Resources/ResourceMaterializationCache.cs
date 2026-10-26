@@ -504,6 +504,7 @@ public sealed partial class ResourceMaterializationCache
                 _recent.Clear();
             _recent[structure] = built;
             if (previous is null || previous.UserData.Length != built.UserData.Length ||
+                previous.Normalization != built.Normalization ||
                 !previous.UsedUserData.AsSpan().SequenceEqual(built.UsedUserData))
                 return;
 
@@ -964,6 +965,8 @@ public sealed partial class ResourceMaterializationCache
         }
     }
 
+    private static long NormalizationOf(ShaderResourcePlan plan) => plan.ImageNormalizationVersion?.Invoke() ?? 0;
+
     private bool MaterializeCore(
         ShaderResourcePlan plan,
         ResourceRuntimeInputs inputs,
@@ -973,6 +976,15 @@ public sealed partial class ResourceMaterializationCache
         out ResourceMaterializationFailure failure,
         ref MaterializationTiming timing)
     {
+        // A frontend image conversion can depend on GPU attachments or detile guest
+        // texels. Unchanged descriptor bytes do not prove that its result is current.
+        if (plan.NormalizeImageDescriptor is not null && plan.Info.Images.Count != 0 && plan.ImageNormalizationVersion is null)
+        {
+            Uncacheable++;
+            Interlocked.Increment(ref _totalUncacheable);
+            return ResourceMaterializer.Materialize(plan, inputs, ref snapshot, ref specialization, out failure);
+        }
+        var normalization = NormalizationOf(plan);
         var drawKey = DrawKeyOf(plan, inputs);
         _learnedUserData.TryGetValue(drawKey, out var learned);
         var rebase = RebaseOf(drawKey, plan);
@@ -1139,7 +1151,7 @@ public sealed partial class ResourceMaterializationCache
             }
 
             timing.ChangePhase(MaterializationPhase.CacheStore);
-            var built = recorder.Build(plan, inputs, snapshot, specialization, rebase.MemoryBases);
+            var built = recorder.Build(plan, inputs, snapshot, specialization, rebase.MemoryBases, normalization);
             if (StaleDiffEnabled && stale is not null && learning is null)
                 NoteStaleDifference(stale, built);
             if (learning is { } pending)
@@ -1293,6 +1305,7 @@ public sealed partial class ResourceMaterializationCache
                 WordTableOnly = cached.WordTableOnly,
                 BaseWordBuffers = cached.BaseWordBuffers,
                 TableRefreshable = true,
+                Normalization = cached.Normalization,
                 // Published entries must not share mutable scratch storage.
                 Bytes = current.AsSpan(0, currentLength).ToArray(),
                 Snapshot = new ResourceSnapshot
@@ -1942,6 +1955,7 @@ public sealed partial class ResourceMaterializationCache
         public required byte[] Bytes { get; init; }
         public required ResourceSnapshot Snapshot { get; init; }
         public required ResourceSpecialization Specialization { get; init; }
+        public long Normalization { get; init; }
         // Per recorded dword: the buffer whose memory-loaded base dword it is, or a negative value.
         public int[]? BaseWordBuffers { get; init; }
         // Filled on the first rebased refresh of the entry; see RangeWindowsOf and TableCopySourcesOf.
@@ -1954,7 +1968,8 @@ public sealed partial class ResourceMaterializationCache
         public bool Matches(ShaderResourcePlan plan, ResourceRuntimeInputs inputs, ulong[] rebased)
         {
             if (!ReferenceEquals(Plan, plan) || ShaderBase != inputs.ShaderBase ||
-                !Nullable.Equals(ComputeState, inputs.ComputeState) || UserData.Length != inputs.UserData.Count)
+                !Nullable.Equals(ComputeState, inputs.ComputeState) || UserData.Length != inputs.UserData.Count ||
+                Normalization != NormalizationOf(plan))
                 return false;
             for (var index = 0; index < UserData.Length; index++)
                 if (IsUsed(UsedUserData, index) && !IsUsed(rebased, index) && UserData[index] != inputs.UserData[index])
@@ -2103,7 +2118,7 @@ public sealed partial class ResourceMaterializationCache
         }
 
         public Entry Build(ShaderResourcePlan plan, ResourceRuntimeInputs inputs, ResourceSnapshot snapshot,
-            ResourceSpecialization specialization, IReadOnlyList<int> memoryBases)
+            ResourceSpecialization specialization, IReadOnlyList<int> memoryBases, long normalization)
         {
             // Reads mostly arrive in address order; sorting a sorted list was ~5% of a draw-heavy render thread.
             var ordered = true;
@@ -2183,6 +2198,7 @@ public sealed partial class ResourceMaterializationCache
                 Bytes = bytes,
                 Snapshot = snapshot,
                 Specialization = specialization,
+                Normalization = normalization,
             };
         }
 
