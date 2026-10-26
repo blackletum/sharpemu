@@ -475,20 +475,26 @@ public static partial class AgcExports
             }
         }
 
+        var fusedEntryCode = frontCodeAddress;
+        var fusedEntryHeader = frontAddress;
+        if (!isGeometryPair &&
+            !TryGetFusedHullEntry(ctx, frontAddress, backAddress, backCodeAddress, ref fusedEntryCode, out fusedEntryHeader))
+            return SetReturn(ctx, OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT);
+
         if (!PatchFusedProgramAddress(
                 ctx,
                 fusedRegistersAddress,
                 registerCount,
                 isGeometryPair ? SpiShaderPgmLoEs : SpiShaderPgmLoLs,
-                frontCodeAddress))
+                fusedEntryCode))
         {
             return SetReturn(ctx, OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT);
         }
 
         Gen5ShaderTranslator.RegisterFusedProgram(
             ctx,
-            frontCodeAddress,
-            frontAddress,
+            fusedEntryCode,
+            fusedEntryHeader,
             backCodeAddress,
             backAddress);
 
