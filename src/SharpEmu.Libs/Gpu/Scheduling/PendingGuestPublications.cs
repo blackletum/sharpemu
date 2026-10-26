@@ -237,13 +237,13 @@ internal sealed class PendingGuestPublications
         }
     }
 
-    internal Entry? AddAfterPending(int queue, ulong address, ulong size, ulong value = 0)
+    internal Entry? AddAfterPending(int queue, ulong address, ulong size, ulong value = 0, bool requireCompletion = false)
     {
         if (address > ulong.MaxValue - size) throw new ArgumentOutOfRangeException(nameof(size));
         lock (_gate)
         {
             ThrowIfFailed();
-            if (!_queueEntries.ContainsKey(queue)) return null;
+            if (!requireCompletion && !_queueEntries.ContainsKey(queue)) return null;
             var entry = new Entry(queue, address, size)
             {
                 DeferredLabel = size != 0,

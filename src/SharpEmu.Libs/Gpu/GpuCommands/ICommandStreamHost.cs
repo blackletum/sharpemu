@@ -74,7 +74,8 @@ public readonly record struct EndOfPipeWrite(
     int FlipIndex = 0,
     int FlipMode = 0,
     long FlipArgument = 0,
-    ulong FlipRequestId = 0);
+    ulong FlipRequestId = 0,
+    bool WaitForGpu = false);
 
 // Everything a packet handler needs from the renderer, the caches, the scheduler and video out.
 public interface ICommandStreamHost
