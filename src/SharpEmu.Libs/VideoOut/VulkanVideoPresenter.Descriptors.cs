@@ -827,6 +827,8 @@ internal static unsafe partial class VulkanVideoPresenter
                 var dword = layout.MemoryOffsetDword + (uint)index / 4;
                 var shift = ((uint)index % 4) * 8;
                 shaderData[dword] |= memoryOffset << (int)shift;
+                if (layout.UsesBufferLengths)
+                    shaderData[layout.BufferLengthsDword + (uint)index] = checked((uint)(views[index].Range / sizeof(uint)));
             }
 
             prepared.Descriptors.Buffers = views;
