@@ -128,6 +128,7 @@ internal static unsafe partial class VulkanVideoPresenter
         private bool _supportsDepthBounds;
         private bool _supportsFillRectangle;
         private bool _supportsRectangleGeometry;
+        private bool _supportsTessellation;
         private RenderHostLimits _renderHostLimits;
         private IGuestBackedSpace _guestBacking = null!;
 
@@ -182,6 +183,7 @@ internal static unsafe partial class VulkanVideoPresenter
         RenderHostLimits IRenderHost.Limits => _renderHostLimits;
 
         bool IRenderHost.SupportsNativeRectangles => _supportsFillRectangle || _supportsRectangleGeometry;
+        bool IRenderHost.SupportsTessellation => _supportsTessellation;
 
         IImageFormatSupport IRenderHost.FormatSupport => _deviceInfo;
 
@@ -375,6 +377,15 @@ internal static unsafe partial class VulkanVideoPresenter
             if (address == 0) throw new InvalidOperationException("The mesh index buffer has no device address.");
             return address;
         }
+
+        public ulong ObtainBufferDeviceAddress(ulong address, ulong size, bool isWritten)
+        {
+            var (buffer, offset) = _bufferCache.ObtainBuffer(address, size, isWritten, requiresDeviceAddress: true);
+            return checked(buffer.DeviceAddress + offset);
+        }
+
+        public void PrepareBufferAllocations(ReadOnlySpan<SharpEmu.HLE.GpuMemory.GuestSpan> ranges) =>
+            _bufferCache.PrepareBufferAllocations(ranges);
 
         public BufferBinding ObtainBuffer(ulong address, ulong size, bool isWritten)
         {
