@@ -18,6 +18,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using SharpEmu.Core.Cpu;
 using SharpEmu.Core.Runtime;
+using SharpEmu.GnmMode;
 using SharpEmu.HLE.FileSystem;
 using SharpEmu.HLE.Host;
 using SharpEmu.Libs.Pad;
@@ -2188,9 +2189,12 @@ public partial class MainWindow : Window
         }
 
         var (title, titleId, version) = TryReadParamJson(metadataPath);
+        var compatibilityMode = title is null && titleId is null && GnmRuntime.UsesCompatibilityMode(fullPath);
+        if (compatibilityMode)
+            (title, titleId, version) = GnmRuntime.ReadApplicationInfo(fullPath);
         return new GameEntry(
             title ?? GameNameFor(metadataPath), titleId, version, fullPath, size,
-            FindCoverFor(metadataPath), FindBackgroundFor(metadataPath));
+            FindCoverFor(metadataPath), FindBackgroundFor(metadataPath), compatibilityMode);
     }
 
     /// <summary>
