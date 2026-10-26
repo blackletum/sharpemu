@@ -30,6 +30,7 @@ public sealed partial class GpuCommandInterpreter
     public const uint RingChunkBytes = 0x10000;
 
     private readonly ICommandStreamHost _host;
+    private PacketHandler?[] _packetHandlers = PacketDispatchTable.Opcodes;
     private readonly List<uint[]> _payloadScratchByDepth = new();
     private readonly uint[] _constantRam = new uint[ConstantRamDwords];
     private PacketCursorStack? _execution;
@@ -49,6 +50,15 @@ public sealed partial class GpuCommandInterpreter
     }
 
     public int QueueId { get; }
+
+    public bool CompletionLabelsRequireGpu { get; set; }
+
+    internal void SetPacketHandlers(PacketHandler?[] handlers)
+    {
+        if (handlers.Length != 256)
+            throw new ArgumentException("A packet dispatch table must contain 256 entries.", nameof(handlers));
+        _packetHandlers = handlers;
+    }
 
     public int InterruptEventId { get; }
 
@@ -338,7 +348,7 @@ public sealed partial class GpuCommandInterpreter
             {
                 _lastWriteLength = 0;
             }
-            var handler = PacketDispatchTable.Opcodes[opcode];
+            var handler = _packetHandlers[opcode];
             if (handler is null)
             {
                 DumpUnknownPacket(cursor, offset);
