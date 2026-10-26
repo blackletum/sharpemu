@@ -250,11 +250,13 @@ public sealed partial class GpuCommandInterpreter
 
     private void PublishLabel(in EndOfPipeWrite write, bool is64Bit)
     {
-        if (_host.TryDeferEndOfPipe(QueueId, in write))
+        var completion = write with { WaitForGpu = CompletionLabelsRequireGpu };
+        if (_host.TryDeferEndOfPipe(QueueId, in completion))
         {
             _lastWriteLength = 0;
             return;
         }
+        if (completion.WaitForGpu) _host.SynchronizeGpu();
         if (is64Bit) WriteQword(write.Destination, write.Value);
         else WriteDword(write.Destination, (uint)write.Value);
         _host.RecordEndOfPipe(in write);

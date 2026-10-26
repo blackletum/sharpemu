@@ -194,7 +194,7 @@ internal static unsafe partial class VulkanVideoPresenter
                 if (OnCommandThread) _commandThread!.Run(() => _scheduler.Finish());
                 else _scheduler.Finish();
             }
-            var entry = _guestPublications.AddAfterPending(queueId, write.Destination, size, write.Value);
+            var entry = _guestPublications.AddAfterPending(queueId, write.Destination, size, write.Value, write.WaitForGpu);
             if (entry is null) return false;
             var captured = write;
             try
@@ -222,7 +222,7 @@ internal static unsafe partial class VulkanVideoPresenter
                     EndOfPipeWriteKind.FlipWithWrite32 or EndOfPipeWriteKind.FlipWithInterruptWriteBack32;
                 _ = CurrentRecording();
                 var dependency = _guestPublications.PredecessorTick(entry);
-                if (hasSignal)
+                if (hasSignal || write.WaitForGpu)
                 {
                     _ = BeginBatchedGuestCommands();
                     dependency = _scheduler.CurrentTick;
