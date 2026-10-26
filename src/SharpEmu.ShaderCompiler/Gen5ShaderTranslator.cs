@@ -1918,7 +1918,14 @@ public static partial class Gen5ShaderTranslator
             return true;
         }
 
-        name = opcode switch
+        name = MimgOpcodeName(opcode);
+
+        return FinishDecode(name, $"unknown-mimg op=0x{opcode:X2}", out error);
+    }
+
+    public static string MimgOpcodeName(uint opcode)
+    {
+        return opcode switch
         {
             0x00 => "ImageLoad",
             0x01 => "ImageLoadMip",
@@ -2017,8 +2024,6 @@ public static partial class Gen5ShaderTranslator
             0xE7 => "ImageBvh64IntersectRay",
             _ => string.Empty,
         };
-
-        return FinishDecode(name, $"unknown-mimg op=0x{opcode:X2}", out error);
     }
 
     private static bool DecodeVintrp(uint word, out string name, out uint sizeDwords, out string error)
