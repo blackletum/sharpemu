@@ -514,6 +514,35 @@ public sealed class ShaderPipelineCacheTests : IDisposable
         Assert.Equal(2, cache.ComputePipelineCount);
     }
 
+    [Theory]
+    [InlineData(0x0200210Du, true)]
+    [InlineData(0x02C0210Du, true)]
+    [InlineData(0x02002000u, false)]
+    [InlineData(0x0200214Du, false)]
+    public void MergedTessellationMask_DoesNotTakeOverOtherGraphicsPaths(uint mask, bool expected) =>
+        Assert.Equal(expected, ShaderPipelineCache.IsMergedTessellationMask(mask));
+
+    [Fact]
+    public void GraphicsPipelineKey_SeparatesTessellationFromRectanglesAndIncludesBothStages()
+    {
+        var description = Describe();
+        var rectangle = ShaderPipelineCache.KeyOf(description);
+        rectangle.StaticParameters.Topology = PrimitiveTopology.PatchList;
+        var tessellated = ShaderPipelineCache.KeyOf(description);
+        tessellated.Tessellation = new(new ShaderProgram(10), new ShaderProgram(11), 4);
+        Assert.NotEqual(rectangle, tessellated);
+
+        var other = ShaderPipelineCache.KeyOf(description);
+        other.Tessellation = tessellated.Tessellation;
+        Assert.Equal(tessellated, other);
+        other.Tessellation = tessellated.Tessellation with { Control = new ShaderProgram(12) };
+        Assert.NotEqual(tessellated, other);
+        other.Tessellation = tessellated.Tessellation with { Evaluation = new ShaderProgram(12) };
+        Assert.NotEqual(tessellated, other);
+        other.Tessellation = tessellated.Tessellation with { InputControlPoints = 3 };
+        Assert.NotEqual(tessellated, other);
+    }
+
     [Fact]
     public void TryCreateComputePipeline_ReportsTheHostCompileAndCachesTheResult()
     {

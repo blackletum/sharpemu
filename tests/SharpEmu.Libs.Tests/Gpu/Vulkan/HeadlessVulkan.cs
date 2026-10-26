@@ -38,12 +38,14 @@ internal sealed unsafe class HeadlessVulkan : IDisposable
         StorageImageExtendedFormats = features.ShaderStorageImageExtendedFormats;
         ShaderInt64 = features.ShaderInt64;
         SupportsClipDistance = features.ShaderClipDistance;
+        SupportsTessellation = features.TessellationShader;
         SupportsDynamicRendering = dynamicRendering;
     }
 
     // Dynamic rendering support required by the presenter's render host.
     public bool SupportsDynamicRendering { get; }
     public bool SupportsClipDistance { get; }
+    public bool SupportsTessellation { get; }
     public bool SupportsFragmentShaderBarycentric { get; private init; }
     public bool SupportsFillRectangle { get; private init; }
     public bool SupportsMeshShaders { get; private init; }
@@ -381,6 +383,7 @@ internal sealed unsafe class HeadlessVulkan : IDisposable
             sizeControlProperties.MinSubgroupSize <= 32 && sizeControlProperties.MaxSubgroupSize >= 32;
         var enabledFeatures = new PhysicalDeviceFeatures
         {
+            TessellationShader = baseFeatures.TessellationShader,
             GeometryShader = baseFeatures.GeometryShader,
             OcclusionQueryPrecise = baseFeatures.OcclusionQueryPrecise,
             SampleRateShading = baseFeatures.SampleRateShading,

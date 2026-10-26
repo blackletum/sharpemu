@@ -13,6 +13,26 @@ public sealed class BindingLayoutTests
     [Theory]
     [InlineData(0u)]
     [InlineData(30u)]
+    public void ExplicitBufferLengthsHaveTheirOwnShaderDataAndLeaveTheDefaultLayoutUnchanged(uint cursor)
+    {
+        var info = new ShaderResourceInfo { Buffers = Enumerable.Range(0, 5).Select(_ => new BufferResource { Read = true }).ToList() };
+        var plain = BindingLayout.Allocate(info, [0u], false, false, true, cursor, usesDispatchThreadLimits: true);
+        var explicitLengths = BindingLayout.Allocate(info, [0u], false, false, true, cursor,
+            usesDispatchThreadLimits: true, usesBufferLengths: true);
+        Assert.False(plain.UsesBufferLengths);
+        Assert.Equal(8u, plain.ShaderDataDwordCount);
+        Assert.True(explicitLengths.UsesBufferLengths);
+        Assert.Equal(5u, explicitLengths.BufferLengthsDword);
+        Assert.Equal(10u, explicitLengths.DispatchThreadLimitsDword);
+        Assert.Equal(13u, explicitLengths.ShaderDataDwordCount);
+        Assert.Equal(cursor == 0, explicitLengths.UsesPushData);
+        Assert.NotEqual(plain, explicitLengths);
+        BindingLayoutValidator.Validate(explicitLengths, info, [0u], false, false, true, Hash, ShaderStage.Compute);
+    }
+
+    [Theory]
+    [InlineData(0u)]
+    [InlineData(30u)]
     public void DispatchLimitsFollowPackedOffsetsAndTakePartInAllocation(uint cursor)
     {
         var info = new ShaderResourceInfo { Buffers = Enumerable.Range(0, 5).Select(_ => new BufferResource { Read = true }).ToList() };

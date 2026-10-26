@@ -266,6 +266,43 @@ public sealed class DeviceAddressShaderTests(HeadlessVulkanFixture fixture, ITes
     }
 
     [Theory]
+    [InlineData(false, 77u)]
+    [InlineData(true, 119u)]
+    [InlineData(true, 111u)]
+    public void RuntimeFormattedDescriptorsRespectTheirFormatEncoding(bool split, uint format)
+    {
+        var vulkan = fixture.Vulkan;
+        if (!GatePrerequisites.Ready(vulkan, shaderInt64: true)) return;
+        var load = BufferAccess(24, "BufferLoadFormatXyzw", 16, 0, 4, vectorData: 5);
+        load = load with { Control = ((Gen5BufferMemoryControl)load.Control!) with { SplitDescriptorFormat = split } };
+        var program = Program(
+            Vop2(0, "VAddU32", 2, Operand((uint)GuestBase), Gen5Operand.Vector(0)),
+            ReadFirstLane(8, 12, 2),
+            MoveScalar(12, 13, (uint)(GuestBase >> 32)),
+            ScalarLoad(16, 12, 16, count: 4),
+            load,
+            BufferAccess(32, "BufferStoreDwordx4", ResultRegister, 0, 4, vectorData: 5),
+            EndProgram(40));
+        var run = new Run(vulkan, program);
+        Assert.True(run.Plan.Memory.Find(24)!.DeviceDescriptor);
+        var data = new byte[64];
+        WriteWord(data, 0, (uint)(GuestBase + 32));
+        WriteWord(data, 4, (uint)(GuestBase >> 32) | (16u << 16));
+        WriteWord(data, 8, 1);
+        WriteWord(data, 12, (format << 12) | 0xFAC);
+        float[] expected = [0.25f, -2.5f, 123.75f, 1f];
+        for (var i = 0; i < expected.Length; i++)
+            WriteWord(data, 32 + i * 4, BitConverter.SingleToUInt32Bits(expected[i]));
+        run.MapPage(GuestBase, data);
+        run.Dispatch(GuestBase);
+        var actual = Enumerable.Range(0, 4).Select(i => BitConverter.UInt32BitsToSingle(run.ResultWord((uint)i * 4))).ToArray();
+        var faults = run.FaultWords();
+        run.Finish(output, nameof(RuntimeFormattedDescriptorsRespectTheirFormatEncoding));
+        Assert.All(faults, word => Assert.Equal(0u, word));
+        Assert.Equal(expected, actual);
+    }
+
+    [Theory]
     [InlineData(8u, 1u)]
     [InlineData(4u, 1u)]
     [InlineData(8u, 2u)]

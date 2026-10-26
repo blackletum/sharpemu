@@ -17,6 +17,33 @@ namespace SharpEmu.Libs.Tests.Gpu.Images;
 public sealed partial class GuestImageCacheTests
 {
     [Fact]
+    public unsafe void SmallTexelBufferReadUsesGpuImageContentsInsteadOfStreamingStaleGuestBytes()
+    {
+        if (!GatePrerequisites.Ready(_vulkan)) return;
+        using var harness = new CacheHarness(_vulkan);
+        var address = harness.MapBacked(0x10000, ReadWrite);
+        var image = LinearRequest(address, 8, Format.R32G32Sfloat, GuestPixelFormat.Bits32_32Float,
+            GuestImageType.Color2D, new Extent3D(1, 1, 1), 1, 8, 1);
+        image = AsColorTarget(image);
+        var id = harness.Acquire(ref image);
+        harness.Worker.Run(() =>
+        {
+            var target = harness.Image(id);
+            var command = new CommandBuffer(harness.Scheduler.Current.Handle);
+            target.Transition(ImageLayout.TransferDstOptimal, AccessFlags.TransferWriteBit, null, command);
+            var range = new ImageSubresourceRange(ImageAspectFlags.ColorBit, 0, 1, 0, 1);
+            var clear = new ClearColorValue(1f, 1f, 0f, 0f);
+            _vulkan.Vk.CmdClearColorImage(command, target.Backing.Handle, ImageLayout.TransferDstOptimal, &clear, 1, &range);
+            harness.Images.MarkGpuWritten(id);
+        });
+        Assert.True(harness.Image(id).IsGpuModified);
+        var (buffer, offset) = harness.Worker.Run(() => harness.Cache.ObtainBuffer(address, 8,
+            isWritten: false, isTexelBuffer: true));
+        Assert.Equal(Bytes(0x3F800000u, 0x3F800000u), harness.ReadBufferBytes(buffer, offset, 8));
+        harness.Shutdown();
+    }
+
+    [Fact]
     public void BufferMirror_ReadsTheImageAndKeepsItsOwnership()
     {
         if (!GatePrerequisites.Ready(_vulkan)) return;

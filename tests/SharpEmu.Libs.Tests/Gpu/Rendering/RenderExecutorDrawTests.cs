@@ -367,6 +367,26 @@ public sealed class RenderExecutorDrawTests : IDisposable
         Assert.DoesNotContain(_host.Calls, c => c.StartsWith("find_image", StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Tessellation_UnavailableProgramsSkipWithoutDispatchOrPipelineCreation(bool indexed)
+    {
+        _host.SupportsTessellation = true;
+        _pipelines.Graphics = new GraphicsPrograms { Available = false };
+        var banks = Banks();
+        banks.Context.ShaderStages = 0x0200210D;
+        banks.Context.ShaderInterface.TessellationFactorParameter = 2u | (3u << 5);
+        banks.Context.ShaderInterface.LocalHullConfiguration = 16u | (4u << 8) | (4u << 14);
+
+        if (indexed) _executor.DrawIndexed(1, banks, Indexed(4));
+        else _executor.DrawAuto(1, banks, Auto(4));
+
+        Assert.Contains("reset_bindings", _host.Calls);
+        Assert.DoesNotContain(_host.Calls, call => call.StartsWith("dispatch", StringComparison.Ordinal));
+        Assert.DoesNotContain(_pipelines.Calls, call => call.StartsWith("create_", StringComparison.Ordinal));
+    }
+
     public static TheoryData<string, Action<RegisterBanks>> UnsupportedGeometryStages => new()
     {
         { "stage mask", banks => banks.Context.ShaderStages = 0x1 },
@@ -376,6 +396,40 @@ public sealed class RenderExecutorDrawTests : IDisposable
         { "output primitive", banks => banks.Context.ShaderInterface.GeometryOutputPrimitiveType = 5 },
         { "max output per subgroup", banks => banks.Context.ShaderInterface.MaxOutputPerSubgroup = 0x41 },
     };
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Tessellation_UnsupportedHostSkipsWithoutPreparingResources(bool indexed)
+    {
+        var banks = Banks();
+        banks.Context.ShaderStages = 0x0200210D;
+        banks.Context.ShaderInterface.TessellationFactorParameter = 2u | (3u << 5);
+        banks.Context.ShaderInterface.LocalHullConfiguration = 1u | (4u << 8) | (4u << 14);
+
+        if (indexed) _executor.DrawIndexed(1, banks, Indexed(4));
+        else _executor.DrawAuto(1, banks, Auto(4));
+
+        Assert.DoesNotContain(_host.Calls, call => call.StartsWith("find_image", StringComparison.Ordinal));
+        Assert.Empty(_pipelines.Calls);
+    }
+
+    [Theory]
+    [InlineData(2u | (1u << 2) | (3u << 5), 1u | (4u << 8) | (4u << 14))]
+    [InlineData(2u | (3u << 5), 0u)]
+    public void Tessellation_UnsupportedConfigurationSkipsWithoutPreparingResources(uint parameter, uint hullConfiguration)
+    {
+        _host.SupportsTessellation = true;
+        var banks = Banks();
+        banks.Context.ShaderStages = 0x0200210D;
+        banks.Context.ShaderInterface.TessellationFactorParameter = parameter;
+        banks.Context.ShaderInterface.LocalHullConfiguration = hullConfiguration;
+
+        _executor.DrawIndexed(1, banks, Indexed(4));
+
+        Assert.DoesNotContain(_host.Calls, call => call.StartsWith("find_image", StringComparison.Ordinal));
+        Assert.Empty(_pipelines.Calls);
+    }
 
     [Theory]
     [MemberData(nameof(UnsupportedGeometryStages))]
