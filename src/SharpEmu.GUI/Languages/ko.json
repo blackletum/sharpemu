@@ -75,6 +75,7 @@
   "Library.Stat.Version": "버전",
   "Library.Stat.Installed": "설치됨",
   "Library.Stat.TitleId": "타이틀 ID",
+  "Library.Stat.CompatibilityMode": "호환 모드",
   "Common.Back": "뒤로",
 
   "Library.Music.Volume": "게임 음악 볼륨",

@@ -76,6 +76,7 @@
   "Library.Stat.Version": "Версия",
   "Library.Stat.Installed": "Установлено",
   "Library.Stat.TitleId": "ID игры",
+  "Library.Stat.CompatibilityMode": "Режим совместимости",
   "Common.Back": "Назад",
 
   "Library.Music.Volume": "Громкость музыки игры",

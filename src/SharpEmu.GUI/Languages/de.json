@@ -75,6 +75,7 @@
   "Library.Stat.Version": "Version",
   "Library.Stat.Installed": "Installiert",
   "Library.Stat.TitleId": "Titel-ID",
+  "Library.Stat.CompatibilityMode": "Kompatibilitätsmodus",
   "Common.Back": "Zurück",
 
   "Library.Music.Volume": "Lautstärke der Spielmusik",

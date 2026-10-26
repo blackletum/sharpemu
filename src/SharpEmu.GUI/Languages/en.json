@@ -96,6 +96,7 @@
   "Library.Stat.Version": "Version",
   "Library.Stat.Installed": "Installed",
   "Library.Stat.TitleId": "Title ID",
+  "Library.Stat.CompatibilityMode": "Compatibility Mode",
   "Common.Back": "Back",
 
   "Library.Music.Volume": "Title music volume",

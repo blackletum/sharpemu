@@ -75,6 +75,7 @@
   "Library.Stat.Version": "Verzió",
   "Library.Stat.Installed": "Telepítve",
   "Library.Stat.TitleId": "Címazonosító",
+  "Library.Stat.CompatibilityMode": "Kompatibilitási mód",
   "Common.Back": "Vissza",
 
   "Library.Music.Volume": "Játékzene hangereje",

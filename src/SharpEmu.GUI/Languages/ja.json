@@ -75,6 +75,7 @@
   "Library.Stat.Version": "バージョン",
   "Library.Stat.Installed": "インストール済み",
   "Library.Stat.TitleId": "タイトルID",
+  "Library.Stat.CompatibilityMode": "互換モード",
   "Common.Back": "戻る",
 
   "Library.Music.Volume": "ゲーム音楽の音量",

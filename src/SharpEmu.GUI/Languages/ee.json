@@ -78,6 +78,7 @@
   "Library.Stat.Version": "Versioon",
   "Library.Stat.Installed": "Paigaldatud",
   "Library.Stat.TitleId": "Title ID",
+  "Library.Stat.CompatibilityMode": "Ühilduvusrežiim",
   "Common.Back": "Tagasi",
 
   "Library.Music.Volume": "Mängumuusika helitugevus",

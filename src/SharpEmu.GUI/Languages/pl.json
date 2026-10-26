@@ -78,6 +78,7 @@
   "Library.Stat.Version": "Wersja",
   "Library.Stat.Installed": "Zainstalowano",
   "Library.Stat.TitleId": "Numer seryjny",
+  "Library.Stat.CompatibilityMode": "Tryb zgodności",
   "Common.Back": "Wstecz",
 
   "Library.Music.Volume": "Głośność muzyki w grze",

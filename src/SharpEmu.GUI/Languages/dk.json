@@ -75,6 +75,7 @@
   "Library.Stat.Version": "Version",
   "Library.Stat.Installed": "Installeret",
   "Library.Stat.TitleId": "Titel-id",
+  "Library.Stat.CompatibilityMode": "Kompatibilitetstilstand",
   "Common.Back": "Tilbage",
 
   "Library.Music.Volume": "Lydstyrke for spilmusik",

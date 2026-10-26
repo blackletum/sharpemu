@@ -75,6 +75,7 @@
   "Library.Stat.Version": "Versie",
   "Library.Stat.Installed": "Geïnstalleerd",
   "Library.Stat.TitleId": "Titel-ID",
+  "Library.Stat.CompatibilityMode": "Compatibiliteitsmodus",
   "Common.Back": "Terug",
 
   "Library.Music.Volume": "Volume van gamemuziek",

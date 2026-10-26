@@ -75,6 +75,7 @@
   "Library.Stat.Version": "الإصدار",
   "Library.Stat.Installed": "المثبت",
   "Library.Stat.TitleId": "معرّف اللعبة",
+  "Library.Stat.CompatibilityMode": "وضع التوافق",
   "Common.Back": "رجوع",
 
   "Library.Music.Volume": "مستوى صوت موسيقى اللعبة",

@@ -75,6 +75,7 @@
   "Library.Stat.Version": "Versión",
   "Library.Stat.Installed": "Instalado",
   "Library.Stat.TitleId": "ID del título",
+  "Library.Stat.CompatibilityMode": "Modo de compatibilidad",
   "Common.Back": "Volver",
 
   "Library.Music.Volume": "Volumen de la música del juego",
