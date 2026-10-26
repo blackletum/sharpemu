@@ -63,6 +63,8 @@ public sealed unsafe class GuestBufferCache : IGuestBufferStore, IDisposable
     private bool _faultProcessPending;
     private bool _disposed;
 
+    public static bool PublishCopySourceImages { get; set; }
+
     public GuestBufferCache(
         GpuDeviceInfo device,
         SubmissionScheduler scheduler,
@@ -688,6 +690,11 @@ public sealed unsafe class GuestBufferCache : IGuestBufferStore, IDisposable
             }
 
             return;
+        }
+
+        if (srcMemory && PublishCopySourceImages && srcRegion.GpuImageBytes)
+        {
+            images.PublishImagesUnderRead(srcVaddr, size);
         }
 
         var command = _scheduler.Current;

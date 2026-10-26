@@ -634,6 +634,14 @@ public sealed partial class GuestImageCache
         }
     }
 
+    public void PublishImagesUnderRead(ulong address, ulong size)
+    {
+        if (IsValidRange(address, size))
+        {
+            PublishPartlyWrittenImages(address, size, wholeImages: true);
+        }
+    }
+
     // A GPU-modified image owns its bytes; a raw binding can overlap it without writing there.
     public void InvalidateMemoryCopiesFromGpu(ulong address, ulong size)
     {
