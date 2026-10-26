@@ -81,6 +81,14 @@ public static partial class ResourceMaterializer
         {
             return false;
         }
+        if (plan.NormalizeBufferDescriptor is { } normalize)
+        {
+            for (var index = 0; index < materialized.Buffers.Length; index++)
+                materialized.Buffers[index] = normalize(materialized.Buffers[index]);
+            foreach (var candidates in materialized.BufferCandidateTables)
+                for (var index = 0; index < candidates.Descriptors.Count; index++)
+                    candidates.Descriptors[index] = new DescriptorWords(normalize(candidates.Descriptors[index].Dwords));
+        }
 
         // The written ranges follow the table reads so every store can check its own.
         DeviceAddressRange[] ranges;
@@ -206,7 +214,7 @@ public static partial class ResourceMaterializer
                     var directTable = new IndirectImageTable { Resource = (uint)imageIndex };
                     for (var candidateIndex = 0; candidateIndex < descriptors.Count; candidateIndex++)
                     {
-                        var descriptor = descriptors[candidateIndex];
+                        var descriptor = new DescriptorWords(NormalizeImage(plan, descriptors[candidateIndex].Dwords, "direct-candidate"));
                         if (!UsableImageCandidate(descriptor.Dwords, image.R128))
                             descriptor = DescriptorWords.Empty(8);
                         var existing = directTable.Descriptors.FindIndex(candidate => candidate.SameAs(descriptor));
@@ -227,7 +235,7 @@ public static partial class ResourceMaterializer
                     if (!RuntimeValueEvaluator.EvaluateSources(plan, [indirect.HeapSource], cleanInputs, [], evaluateTable: false,
                         out var waveSources, out _))
                         return false;
-                    if (!MaterializeWaveIndexedImage(indirect, waveIndexed, waveSources[0], image, image.R128, inputs, out var waveTable, out failure))
+                    if (!MaterializeWaveIndexedImage(plan, indirect, waveIndexed, waveSources[0], image, image.R128, inputs, out var waveTable, out failure))
                         return false;
                     snapshot.Images[imageIndex] = waveTable.Descriptors[(int)waveTable.Candidates[0]].Dwords;
                     if (waveTable.Descriptors.Count > 1)
@@ -242,7 +250,7 @@ public static partial class ResourceMaterializer
                     if (!RuntimeValueEvaluator.EvaluateSources(plan, [indirect.HeapSource], cleanInputs, [], evaluateTable: false,
                         out var denseSources, out _))
                         return false;
-                    if (!MaterializeDenseIndirectImage(indirect, denseSources[0], image, image.R128, inputs, out var denseTable, out failure))
+                    if (!MaterializeDenseIndirectImage(plan, indirect, denseSources[0], image, image.R128, inputs, out var denseTable, out failure))
                         return false;
                     snapshot.Images[imageIndex] = denseTable.Descriptors[(int)denseTable.Candidates[0]].Dwords;
                     if (denseTable.Descriptors.Count > 1)
@@ -277,7 +285,7 @@ public static partial class ResourceMaterializer
             }
             else
             {
-                var descriptor = values[cursor++];
+                var descriptor = new DescriptorWords(NormalizeImage(plan, values[cursor++].Dwords, "direct"));
                 if (!ValidImageDescriptor(descriptor.Dwords, image.R128))
                 {
                     descriptor = DescriptorWords.Empty(descriptor.DwordCount);
@@ -532,6 +540,11 @@ public static partial class ResourceMaterializer
         }
     }
 
+    // Frontend-specific image conversion must precede validation, including indirect
+    // candidates. AGC frontends have no hook and keep their exact existing words.
+    private static uint[] NormalizeImage(ShaderResourcePlan plan, uint[] words, string source) =>
+        plan.NormalizeImageDescriptor is { } normalize ? normalize(words, plan.Stage, plan.Hash, source) : words;
+
     private static bool NullImageDescriptor(ReadOnlySpan<uint> descriptor) =>
         descriptor[0] == 0 && (descriptor[1] & 0xFF) == 0;
 
@@ -729,6 +742,7 @@ public static partial class ResourceMaterializer
                 }
             }
 
+            candidate = NormalizeImage(plan, candidate, "indirect-heap");
             if (!UsableImageCandidate(candidate, image.R128) || (indirect.SharedSelector && !SamplesAs(candidate, image)))
             {
                 Array.Clear(candidate);
@@ -756,6 +770,7 @@ public static partial class ResourceMaterializer
     }
 
     private static bool MaterializeDenseIndirectImage(
+        ShaderResourcePlan plan,
         IndirectImageSelector indirect,
         DescriptorWords heap,
         ImageResource image,
@@ -784,6 +799,7 @@ public static partial class ResourceMaterializer
             }
 
             inputs.TraceImageCandidate?.Invoke(image.Source, key, baseAddress, baseAddress + entry, candidate);
+            candidate = NormalizeImage(plan, candidate, "dense-heap");
             if (!UsableImageCandidate(candidate, r128))
                 Array.Clear(candidate);
             probed.Add(candidate);
@@ -798,6 +814,7 @@ public static partial class ResourceMaterializer
     }
 
     private static bool MaterializeWaveIndexedImage(
+        ShaderResourcePlan plan,
         IndirectImageSelector indirect,
         WaveIndexedImageSelector wave,
         DescriptorWords heap,
@@ -841,6 +858,7 @@ public static partial class ResourceMaterializer
                     return false;
             }
 
+            candidate = NormalizeImage(plan, candidate, "wave-heap");
             if (!UsableImageCandidate(candidate, r128))
                 Array.Clear(candidate);
             probed.Add(candidate);
