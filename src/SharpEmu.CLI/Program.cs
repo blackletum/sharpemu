@@ -770,6 +770,8 @@ internal static partial class Program
                     }
                 }
             }
+
+            return GnmRuntime.ReadApplicationInfo(ebootPath).TitleId;
         }
         catch
         {
