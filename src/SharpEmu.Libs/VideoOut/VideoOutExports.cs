@@ -124,6 +124,10 @@ public static partial class VideoOutExports
         RunPixelFormatSelfChecks();
     }
 
+    public static bool SplashHoldsGuestFrames { get; set; }
+
+    public static bool CompatibilityMode { get; set; }
+
     public static void ConfigureApplicationInfo(string? title, string? titleId, string? version)
     {
         var parts = new List<string>();
@@ -135,6 +139,11 @@ public static partial class VideoOutExports
         if (!string.IsNullOrWhiteSpace(titleId))
         {
             parts.Add($"[{titleId.Trim()}]");
+        }
+
+        if (CompatibilityMode)
+        {
+            parts.Add("[compatibility-mode]");
         }
 
         var application = parts.Count == 0 ? "VideoOut" : string.Join(' ', parts);
