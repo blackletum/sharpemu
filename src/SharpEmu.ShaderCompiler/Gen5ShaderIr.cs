@@ -275,7 +275,11 @@ public sealed record Gen5BufferMemoryControl(
     bool Glc,
     bool Slc,
     bool Typed = false,
-    uint TypedFormat = 0) : Gen5InstructionControl;
+    uint TypedFormat = 0) : Gen5InstructionControl
+{
+    // Applies only to raw, shader-loaded descriptors; CPU-specialized formats are already unified.
+    public bool SplitDescriptorFormat { get; init; }
+}
 
 public sealed record Gen5ExportControl(
     uint Target,
