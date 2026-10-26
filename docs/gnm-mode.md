@@ -19,6 +19,8 @@ GnmMode reuses SharpEmu's existing native CPU execution infrastructure, shader i
 
 ## Current status
 
+PS4 trophy packages use the TRP container and AES-encrypted ESFM metadata. GnmMode derives the metadata key from a user-supplied 128-bit trophy key and the package's NP communication ID in `sce_sys/npbind.dat`. The key is configured under **Options → GnmMode → Trophy key**; it is not bundled with SharpEmu. Trophy names, descriptions, icons, unlock timestamps, and notifications feed the existing trophy system. PS4 trophy calls use their own structure layouts, and platinum eligibility follows the package's trophy links so unrelated DLC trophies do not block the base game's platinum. The current integration handles the first trophy set (`trophy00.trp`, service label 0).
+
 GnmMode is experimental. Some PS4 games can progress into menus or gameplay, but compatibility, rendering accuracy, performance, and system-service support remain incomplete. Results for individual games should not be treated as evidence of general compatibility.
 
 ## References

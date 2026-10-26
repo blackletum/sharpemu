@@ -153,6 +153,11 @@
   "Options.Env.TrophySound.Label": "Trofee-heli",
   "Options.Env.TrophySound.Desc": "Esitab trofee avamisel lühikese helisignaali.",
 
+  "Options.GnmMode.TrophyKey.Label": "Trofeevõti",
+  "Options.GnmMode.TrophyKey.Desc": "PS4 trofeevõti krüptitud trofeenimede ja kirjelduste jaoks. Seda kasutavad GnmMode'i trofeeloendid ja avamisteavitused. Salvestatakse kohalikult; pärast muutmist taaskäivita käimasolev mäng.",
+  "Options.GnmMode.TrophyKey.Placeholder": "32 kuueteistkümnendsüsteemi märki",
+  "Options.GnmMode.TrophyKey.Invalid": "Sisesta täpselt 32 kuueteistkümnendsüsteemi märki (0–9, A–F) või tühjenda väli võtme eemaldamiseks. Eelmine kehtiv võti säilib, kuni sisestatud väärtus on kehtiv.",
+
   "Options.CpuEngine.Label": "CPU-mootor",
   "Options.CpuEngine.Desc": "Käitusmootor, mida kasutatakse mängukoodi käivitamiseks.",
   "Options.CpuEngine.Native": "Natiivne",
@@ -294,6 +299,7 @@
 ,
   "Trophies.Title": "Trofeed",
   "Trophies.None": "Sellel mängul pole trofeesid.",
+  "Trophies.GnmMode.KeyHint": "PS4 trofeede laadimiseks võib vaja minna trofeevõtit. Sisesta see jaotises {0} → GnmMode → {1}.",
   "Trophies.Loading": "Trofeesid laaditakse…",
   "Trophies.Hidden": "Peidetud trofee",
   "Trophies.HiddenDescription": "Klõpsa selle trofee avaldamiseks.",

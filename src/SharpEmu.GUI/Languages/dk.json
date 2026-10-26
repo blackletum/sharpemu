@@ -285,10 +285,16 @@
   "Options.Env.TrophyTest.Desc": "Vælg et spil og et trofæ, og vis derefter oplåsningsnotifikationen. Intet bliver låst op.",
   "Options.Env.TrophyTest.Show": "Vis notifikation",
   "Options.Env.TrophySound.Label": "Trofæ-lyd",
-  "Options.Env.TrophySound.Desc": "Afspiller en kort lyd, når et trofæ låses op."
-,
+  "Options.Env.TrophySound.Desc": "Afspiller en kort lyd, når et trofæ låses op.",
+
+  "Options.GnmMode.TrophyKey.Label": "Trofænøgle",
+  "Options.GnmMode.TrophyKey.Desc": "PS4-trofænøgle til krypterede trofænavne og beskrivelser. Bruges af trofælister og oplåsningsnotifikationer i GnmMode. Gemmes lokalt; genstart et kørende spil efter ændring.",
+  "Options.GnmMode.TrophyKey.Placeholder": "32 hexadecimale tegn",
+  "Options.GnmMode.TrophyKey.Invalid": "Indtast præcis 32 hexadecimale tegn (0–9, A–F), eller ryd feltet for at fjerne nøglen. Den tidligere gyldige nøgle beholdes, indtil indtastningen er gyldig.",
+
   "Trophies.Title": "Trofæer",
   "Trophies.None": "Dette spil har ingen trofæer.",
+  "Trophies.GnmMode.KeyHint": "Der kan være brug for en trofænøgle til at indlæse PS4-trofæer. Indtast den under {0} → GnmMode → {1}.",
   "Trophies.Loading": "Indlæser trofæer…",
   "Trophies.Hidden": "Skjult trofæ",
   "Trophies.HiddenDescription": "Klik for at afsløre dette trofæ.",

@@ -290,10 +290,16 @@
   "Options.Env.TrophyTest.Desc": "Scegli un gioco e un trofeo, poi mostra la relativa notifica di sblocco. Non viene sbloccato nulla.",
   "Options.Env.TrophyTest.Show": "Mostra notifica",
   "Options.Env.TrophySound.Label": "Suono dei trofei",
-  "Options.Env.TrophySound.Desc": "Riproduce un breve suono quando un trofeo viene sbloccato."
-,
+  "Options.Env.TrophySound.Desc": "Riproduce un breve suono quando un trofeo viene sbloccato.",
+
+  "Options.GnmMode.TrophyKey.Label": "Chiave dei trofei",
+  "Options.GnmMode.TrophyKey.Desc": "Chiave dei trofei PS4 per nomi e descrizioni dei trofei cifrati. Utilizzata dagli elenchi dei trofei e dalle notifiche di sblocco di GnmMode. Salvata localmente; riavvia il gioco in esecuzione dopo averla modificata.",
+  "Options.GnmMode.TrophyKey.Placeholder": "32 caratteri esadecimali",
+  "Options.GnmMode.TrophyKey.Invalid": "Inserisci esattamente 32 caratteri esadecimali (0–9, A–F), oppure svuota il campo per rimuovere la chiave. La chiave valida precedente viene mantenuta finché il valore inserito non è valido.",
+
   "Trophies.Title": "Trofei",
   "Trophies.None": "Questo gioco non ha trofei.",
+  "Trophies.GnmMode.KeyHint": "Per caricare i trofei PS4 potrebbe essere necessaria una chiave dei trofei. Inseriscila in {0} → GnmMode → {1}.",
   "Trophies.Loading": "Caricamento trofei…",
   "Trophies.Hidden": "Trofeo nascosto",
   "Trophies.HiddenDescription": "Fai clic per rivelare questo trofeo.",

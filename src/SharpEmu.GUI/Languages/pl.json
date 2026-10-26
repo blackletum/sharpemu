@@ -153,6 +153,11 @@
   "Options.Env.TrophySound.Label": "Dźwięk trofeów",
   "Options.Env.TrophySound.Desc": "Odtwarza krótki sygnał po odblokowaniu trofeum.",
 
+  "Options.GnmMode.TrophyKey.Label": "Klucz trofeów",
+  "Options.GnmMode.TrophyKey.Desc": "Klucz trofeów PS4 do zaszyfrowanych nazw i opisów trofeów. Używany przez listy trofeów i powiadomienia o ich odblokowaniu w GnmMode. Zapisywany lokalnie; po zmianie uruchom ponownie działającą grę.",
+  "Options.GnmMode.TrophyKey.Placeholder": "32 znaki szesnastkowe",
+  "Options.GnmMode.TrophyKey.Invalid": "Wpisz dokładnie 32 znaki szesnastkowe (0–9, A–F) lub wyczyść pole, aby usunąć klucz. Poprzedni poprawny klucz zostanie zachowany, dopóki wpisana wartość nie będzie poprawna.",
+
   "Options.CpuEngine.Label": "Silnik CPU",
   "Options.CpuEngine.Desc": "Silnik wykonawczy używany do uruchamiania kodu gry.",
   "Options.CpuEngine.Native": "Natywny",
@@ -294,6 +299,7 @@
 ,
   "Trophies.Title": "Trofea",
   "Trophies.None": "Ta gra nie ma trofeów.",
+  "Trophies.GnmMode.KeyHint": "Do wczytania trofeów PS4 może być wymagany klucz trofeów. Wpisz go w {0} → GnmMode → {1}.",
   "Trophies.Loading": "Ładowanie trofeów…",
   "Trophies.Hidden": "Ukryte trofeum",
   "Trophies.HiddenDescription": "Kliknij, aby odkryć to trofeum.",

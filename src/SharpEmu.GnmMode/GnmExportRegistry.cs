@@ -5,6 +5,7 @@ using SharpEmu.HLE;
 using SharpEmu.GnmMode.Libraries.Ajm;
 using SharpEmu.GnmMode.Libraries.AppContent;
 using SharpEmu.GnmMode.Libraries.Gnm;
+using SharpEmu.GnmMode.Libraries.Np;
 using SharpEmu.GnmMode.Libraries.SaveData;
 using SharpEmu.GnmMode.Libraries.VideoOut;
 
@@ -16,6 +17,21 @@ public static class GnmExportRegistry
     {
         ExportedFunction[] overrides =
         [
+            new("libSceNpTrophy", "XbkjbobZlCY", "sceNpTrophyCreateContext", Generation.Gen4, GnmTrophyExports.CreateContext),
+            new("libSceNpTrophy", "q7U6tEAQf7c", "sceNpTrophyCreateHandle", Generation.Gen4, GnmTrophyExports.CreateHandle),
+            new("libSceNpTrophy", "E1Wrwd07Lr8", "sceNpTrophyDestroyContext", Generation.Gen4, GnmTrophyExports.DestroyContext),
+            new("libSceNpTrophy", "GNcF4oidY0Y", "sceNpTrophyDestroyHandle", Generation.Gen4, GnmTrophyExports.DestroyHandle),
+            new("libSceNpTrophy", "aTnHs7W-9Uk", "sceNpTrophyAbortHandle", Generation.Gen4, GnmTrophyExports.AbortHandle),
+            new("libSceNpTrophy", "TJCAxto9SEU", "sceNpTrophyRegisterContext", Generation.Gen4, GnmTrophyExports.RegisterContext),
+            new("libSceNpTrophy", "28xmRUFao68", "sceNpTrophyUnlockTrophy", Generation.Gen4, GnmTrophyExports.UnlockTrophy),
+            new("libSceNpTrophy", "LHuSmO3SLd8", "sceNpTrophyGetTrophyUnlockState", Generation.Gen4, GnmTrophyExports.GetTrophyUnlockState),
+            new("libSceNpTrophy", "qqUVGDgQBm0", "sceNpTrophyGetTrophyInfo", Generation.Gen4, GnmTrophyExports.GetTrophyInfo),
+            new("libSceNpTrophy", "YYP3f2W09og", "sceNpTrophyGetGameInfo", Generation.Gen4, GnmTrophyExports.GetGameInfo),
+            new("libSceNpTrophy", "wTUwGfspKic", "sceNpTrophyGetGroupInfo", Generation.Gen4, GnmTrophyExports.GetGroupInfo),
+            new("libSceNpTrophy", "HLwz1fRIycA", "sceNpTrophyGetGameIcon", Generation.Gen4, GnmTrophyExports.GetGameIcon),
+            new("libSceNpTrophy", "w4uMPmErD4I", "sceNpTrophyGetGroupIcon", Generation.Gen4, GnmTrophyExports.GetGroupIcon),
+            new("libSceNpTrophy", "eBL+l6HG9xk", "sceNpTrophyGetTrophyIcon", Generation.Gen4, GnmTrophyExports.GetTrophyIcon),
+            new("libSceNpTrophy", "d9jpdPz5f-8", "sceNpTrophyShowTrophyList", Generation.Gen4, GnmTrophyExports.ShowTrophyList),
             new("libSceSaveData", "32HQAQdwM2o", "sceSaveDataMount", Generation.Gen4,
                 GnmSaveDataExports.Mount),
             new("libSceSaveData", "0z45PIH+SNI", "sceSaveDataMount2", Generation.Gen4,

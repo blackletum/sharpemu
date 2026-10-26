@@ -54,7 +54,7 @@ result filters, mutex warning sampling, and diagnostic selection.
 | --- | --- |
 | Behavior switches | 17 |
 | GPU and Vulkan | 59 |
-| GnmMode | 3 (plus 2 shared switches listed below) |
+| GnmMode | 4 (plus 2 shared switches listed below; trophy key also exposed in GUI) |
 | Audio and video | 6 |
 | Input | 5 |
 | Memory and CPU | 19 |
@@ -108,6 +108,7 @@ The two GNM log switches are independent: enable both for a full GNM trace.
 | `SHARPEMU_LOG_GNM` | `1`; default off | Enables GPU target and shadow addresses, vertex-fetch linking and decode diagnostics, tessellation linking, scatter-copy details, packet traces, shader-bind memory probes, and sampled submit/flip timing. Strings and diagnostic-only counters are skipped when off. | `GnmDiagnostics.cs`; GnmMode GPU, shader, GNM driver and VideoOut code |
 | `SHARPEMU_LOG_GNM_IMAGES` | `1`; default off | Enables successful GCN T# to AGC descriptor conversions, raw before/after descriptor words, extended conversion warnings, and thin-1D texture readback diagnostics. Successful conversion traces and warnings have separate limits of 192 distinct shader/descriptor layouts per process; address-only variations are omitted. With this switch off, conversion failures still produce short, deduplicated warnings. | `GnmDiagnostics.cs`, `GcnImageDescriptor.cs`, `GcnSampledImageDetiler.cs` |
 | `SHARPEMU_GNM_TESSELLATION` | `0` disables; default on | Enables translation of GCN tessellation stages. Only `0` disables it; leave unset for normal rendering. Disabling it can remove tessellated geometry. | `GnmCommandPackets.cs` |
+| `SHARPEMU_GNM_TROPHY_KEY` (exposed in GUI) | 32 hexadecimal characters; unset by default | PS4 retail trophy key used with `sce_sys/npbind.dat` to decrypt ESFM metadata inside `sce_sys/trophy/trophy00.trp`. Configure it under Options → GnmMode → Trophy key. The launcher saves it in local GUI settings and passes it to the game process through this variable. Restart a running game after changing it. Trophy progress uses the existing trophy store and notifications. No key is bundled. | `GnmTrophyPackageReader.cs`, `GnmTrophyExports.cs` |
 | `SHARPEMU_LOG_AJM` (shared) | `1`; default off | Also enables `[GNMMODE][AJM]` audio job and codec diagnostics. Independent of the GNM log switches. See also Log channels below. | `GnmAjmExports.cs` |
 | `SHARPEMU_PROFILE_PERFORMANCE` (shared, exposed in GUI) | `1`; default off | Also enables `[PERF][GNM_IMAGES]` summaries every 5 seconds while there is image activity: normalization time, detile cache hits, hash cost, CPU/GPU detiles, GPU reuse, abandoned work, and invalidations. It also enables shared performance reports. | `GnmImageProfile.cs` |
 

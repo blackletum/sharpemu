@@ -142,6 +142,11 @@
   "Options.Env.TrophySound.Label": "Kubok səsi",
   "Options.Env.TrophySound.Desc": "Kubok açılanda qısa bir səs çalınır.",
 
+  "Options.GnmMode.TrophyKey.Label": "Kubok açarı",
+  "Options.GnmMode.TrophyKey.Desc": "Şifrələnmiş kubok adları və təsvirləri üçün PS4 kubok açarı. GnmMode kubok siyahılarında və kubok açılma bildirişlərində istifadə olunur. Yerli olaraq saxlanılır; dəyişdirdikdən sonra işləyən oyunu yenidən başladın.",
+  "Options.GnmMode.TrophyKey.Placeholder": "32 onaltılıq simvol",
+  "Options.GnmMode.TrophyKey.Invalid": "Dəqiq 32 onaltılıq simvol (0–9, A–F) daxil edin və ya açarı silmək üçün sahəni boşaldın. Daxil edilən dəyər etibarlı olana qədər əvvəlki etibarlı açar saxlanılır.",
+
   "Options.CpuEngine.Label": "CPU icra mühərriki",
   "Options.CpuEngine.Desc": "Oyun kodunu işlətmək üçün istifadə olunan icra mühərriki.",
   "Options.CpuEngine.Native": "Birbaşa icra",
@@ -289,6 +294,7 @@
 ,
   "Trophies.Title": "Kuboklar",
   "Trophies.None": "Bu oyunda kubok yoxdur.",
+  "Trophies.GnmMode.KeyHint": "PS4 kuboklarını yükləmək üçün kubok açarı lazım ola bilər. Açarı {0} → GnmMode → {1} bölməsində daxil edə bilərsiniz.",
   "Trophies.Loading": "Kuboklar yüklənir…",
   "Trophies.Hidden": "Gizli kubok",
   "Trophies.HiddenDescription": "Bu kuboku göstərmək üçün klikləyin.",

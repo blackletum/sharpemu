@@ -16,6 +16,7 @@ public static partial class GnmRuntime
 {
     public static ISharpEmuRuntime CreateDefault(SharpEmuRuntimeOptions options = default, ISelfLoader? loader = null)
     {
+        Libraries.Np.GnmTrophyPackageReader.Configure(Environment.GetEnvironmentVariable(Libraries.Np.GnmTrophyPackageReader.KeyEnvironmentName));
         var memory = new PhysicalVirtualMemory(viewHost: HostViewMemory.Create(), preReserveGuestAddressSpace: true);
         try
         {

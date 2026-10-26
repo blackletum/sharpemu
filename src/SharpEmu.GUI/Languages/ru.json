@@ -149,6 +149,11 @@
   "Options.Env.TrophySound.Label": "Звук трофеев",
   "Options.Env.TrophySound.Desc": "Воспроизводит короткий сигнал при получении трофея.",
 
+  "Options.GnmMode.TrophyKey.Label": "Ключ трофеев",
+  "Options.GnmMode.TrophyKey.Desc": "Ключ трофеев PS4 для зашифрованных названий и описаний трофеев. Используется в списках трофеев и уведомлениях об их получении в GnmMode. Сохраняется локально; после изменения перезапустите запущенную игру.",
+  "Options.GnmMode.TrophyKey.Placeholder": "32 шестнадцатеричных символа",
+  "Options.GnmMode.TrophyKey.Invalid": "Введите ровно 32 шестнадцатеричных символа (0–9, A–F) или очистите поле, чтобы удалить ключ. Предыдущий корректный ключ сохраняется, пока введённое значение не станет корректным.",
+
   "Options.CpuEngine.Label": "Движок ЦП",
   "Options.CpuEngine.Desc": "Движок выполнения, используемый для запуска игрового кода.",
   "Options.CpuEngine.Native": "Нативный",
@@ -293,6 +298,7 @@
 ,
   "Trophies.Title": "Трофеи",
   "Trophies.None": "В этой игре нет трофеев.",
+  "Trophies.GnmMode.KeyHint": "Для загрузки трофеев PS4 может потребоваться ключ трофеев. Введите его в разделе {0} → GnmMode → {1}.",
   "Trophies.Loading": "Загрузка трофеев…",
   "Trophies.Hidden": "Скрытый трофей",
   "Trophies.HiddenDescription": "Нажмите, чтобы раскрыть этот трофей.",

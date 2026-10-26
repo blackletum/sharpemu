@@ -19,6 +19,7 @@ using Avalonia.VisualTree;
 using SharpEmu.Core.Cpu;
 using SharpEmu.Core.Runtime;
 using SharpEmu.GnmMode;
+using SharpEmu.GnmMode.Libraries.Np;
 using SharpEmu.HLE.FileSystem;
 using SharpEmu.HLE.Host;
 using SharpEmu.Libs.Pad;
@@ -432,6 +433,17 @@ public partial class MainWindow : Window
             SetEnvironmentToggle("SHARPEMU_CRASH_CAPTURE", CrashDumpToggle.IsChecked == true);
         DefaultProfileBox.TextChanged += (_, _) =>
             _settings.DefaultProfile = GuiSettings.NormalizeDefaultProfile(DefaultProfileBox.Text);
+        GnmTrophyKeyBox.TextChanged += (_, _) =>
+        {
+            var valid = GnmTrophyPackageReader.TryNormalizeKey(GnmTrophyKeyBox.Text, out var key);
+            GnmTrophyKeyError.IsVisible = !valid;
+            if (valid)
+            {
+                _settings.GnmTrophyKey = key;
+                GnmTrophyPackageReader.Configure(key);
+                LoadTrophyTestCatalog();
+            }
+        };
         LanguageBox.SelectionChanged += (_, _) => OnLanguageChanged();
 
         GameList.AddHandler(ContextRequestedEvent, OnGameContextRequested, RoutingStrategies.Tunnel);
@@ -686,6 +698,7 @@ public partial class MainWindow : Window
         OptionsLauncherNav,
         OptionsRenderingNav,
         OptionsEnvironmentNav,
+        OptionsGnmModeNav,
         OptionsAboutNav,
     ];
 
@@ -696,6 +709,7 @@ public partial class MainWindow : Window
         OptionsLauncherPanel,
         OptionsRenderingPanel,
         OptionsEnvironmentPanel,
+        OptionsGnmModePanel,
         OptionsAboutPanel,
     ];
 
@@ -1223,6 +1237,7 @@ public partial class MainWindow : Window
             OptionsAboutNav,
             OptionsAboutNavLabel,
             localization.Get("Options.About"));
+        SetOptionsNavigationLabel(OptionsGnmModeNav, OptionsGnmModeNavLabel, "GnmMode");
     }
 
     private static void SetOptionsNavigationLabel(Button button, TextBlock label, string value)
@@ -1514,6 +1529,8 @@ public partial class MainWindow : Window
         EnvDisableVkImplicitLayersToggle.IsChecked =
             _settings.EnvironmentToggles.Contains("SHARPEMU_VK_DISABLE_IMPLICITS");
         DefaultProfileBox.Text = _settings.DefaultProfile;
+        GnmTrophyPackageReader.Configure(_settings.GnmTrophyKey);
+        GnmTrophyKeyBox.Text = _settings.GnmTrophyKey;
         WindowModeBox.SelectedIndex = ChoiceIndex(_settings.WindowMode, "Windowed", "Borderless", "Exclusive");
         LoadHostDisplayOptions();
         ScalingModeBox.SelectedIndex = ChoiceIndex(_settings.ScalingMode, "Fit", "Cover", "Stretch", "Integer");
@@ -3129,6 +3146,9 @@ public partial class MainWindow : Window
         }
 
         _appliedEnvironmentVariables.Clear();
+        var trophyKeyVariable = GnmTrophyPackageReader.KeyEnvironmentName;
+        Environment.SetEnvironmentVariable(trophyKeyVariable, string.IsNullOrEmpty(_settings.GnmTrophyKey) ? null : _settings.GnmTrophyKey);
+        _appliedEnvironmentVariables.Add(trophyKeyVariable);
         foreach (var entry in effective.EnvironmentToggles)
         {
             if (!TryParseEnvironmentEntry(entry, out var name, out var value))

@@ -289,10 +289,16 @@
   "Options.Env.TrophyTest.Desc": "Bir oyun ve bir kupa seç, ardından kilit açma bildirimini göster. Hiçbir şey kazanılmaz.",
   "Options.Env.TrophyTest.Show": "Bildirimi göster",
   "Options.Env.TrophySound.Label": "Kupa sesi",
-  "Options.Env.TrophySound.Desc": "Bir kupa açıldığında kısa bir ses çalar."
-,
+  "Options.Env.TrophySound.Desc": "Bir kupa açıldığında kısa bir ses çalar.",
+
+  "Options.GnmMode.TrophyKey.Label": "Kupa anahtarı",
+  "Options.GnmMode.TrophyKey.Desc": "Şifreli kupa adları ve açıklamaları için PS4 kupa anahtarı. GnmMode kupa listelerinde ve kazanma bildirimlerinde kullanılır. Yerel olarak kaydedilir; değiştirdikten sonra çalışan oyunu yeniden başlatın.",
+  "Options.GnmMode.TrophyKey.Placeholder": "32 onaltılık karakter",
+  "Options.GnmMode.TrophyKey.Invalid": "Tam 32 onaltılık karakter (0–9, A–F) girin veya anahtarı kaldırmak için alanı temizleyin. Giriş geçerli olana kadar önceki geçerli anahtar korunur.",
+
   "Trophies.Title": "Kupalar",
   "Trophies.None": "Bu oyunun kupası yok.",
+  "Trophies.GnmMode.KeyHint": "PS4 kupalarını yüklemek için kupa anahtarı gerekebilir. Anahtarı {0} → GnmMode → {1} bölümünden girebilirsin.",
   "Trophies.Loading": "Kupalar yükleniyor…",
   "Trophies.Hidden": "Gizli kupa",
   "Trophies.HiddenDescription": "Bu kupayı göstermek için tıkla.",

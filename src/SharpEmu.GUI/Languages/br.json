@@ -286,10 +286,16 @@
   "Options.Env.TrophyTest.Desc": "Escolha um jogo e um troféu e exiba a notificação de desbloqueio dele. Nada é desbloqueado.",
   "Options.Env.TrophyTest.Show": "Exibir notificação",
   "Options.Env.TrophySound.Label": "Som dos troféus",
-  "Options.Env.TrophySound.Desc": "Reproduz um breve toque quando um troféu é desbloqueado."
-,
+  "Options.Env.TrophySound.Desc": "Reproduz um breve toque quando um troféu é desbloqueado.",
+
+  "Options.GnmMode.TrophyKey.Label": "Chave de troféus",
+  "Options.GnmMode.TrophyKey.Desc": "Chave de troféus do PS4 para nomes e descrições de troféus criptografados. Usada nas listas de troféus e notificações de desbloqueio do GnmMode. Salva localmente; reinicie o jogo em execução após alterá-la.",
+  "Options.GnmMode.TrophyKey.Placeholder": "32 caracteres hexadecimais",
+  "Options.GnmMode.TrophyKey.Invalid": "Digite exatamente 32 caracteres hexadecimais (0–9, A–F) ou limpe o campo para remover a chave. A chave válida anterior é mantida até que a entrada seja válida.",
+
   "Trophies.Title": "Troféus",
   "Trophies.None": "Este jogo não tem troféus.",
+  "Trophies.GnmMode.KeyHint": "Pode ser necessária uma chave de troféus para carregar os troféus do PS4. Insira a chave em {0} → GnmMode → {1}.",
   "Trophies.Loading": "Carregando troféus…",
   "Trophies.Hidden": "Troféu oculto",
   "Trophies.HiddenDescription": "Clique para revelar este troféu.",

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 using System.Text.Json;
+using SharpEmu.GnmMode.Libraries.Np;
 
 namespace SharpEmu.GUI;
 
@@ -43,6 +44,8 @@ public sealed class GuiSettings
     public double TitleMusicVolume { get; set; } = 1.0;
 
     public bool TrophySound { get; set; } = true;
+
+    public string GnmTrophyKey { get; set; } = string.Empty;
 
     public string LibraryLayout { get; set; } = "Carousel";
 
@@ -138,6 +141,8 @@ public sealed class GuiSettings
         settings.EnvironmentToggles = FilterNullOrEmpty(settings.EnvironmentToggles ?? ["SHARPEMU_WRITABLE_APP0", "SHARPEMU_DISABLE_IMPORT_LOOP_GUARD"]);
         settings.LogLevel ??= "Info";
         settings.Language ??= "en";
+        settings.GnmTrophyKey = GnmTrophyPackageReader.TryNormalizeKey(settings.GnmTrophyKey, out var trophyKey)
+            ? trophyKey : string.Empty;
         var legacyProfile = settings.EnvironmentToggles
             .Select(entry => entry.Split('=', 2, StringSplitOptions.TrimEntries))
             .FirstOrDefault(parts =>

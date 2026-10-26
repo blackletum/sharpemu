@@ -285,10 +285,16 @@
   "Options.Env.TrophyTest.Desc": "ゲームとトロフィーを選び、解除通知を表示します。実際には獲得されません。",
   "Options.Env.TrophyTest.Show": "通知を表示",
   "Options.Env.TrophySound.Label": "トロフィー音",
-  "Options.Env.TrophySound.Desc": "トロフィーを獲得したときに短い効果音を再生します。"
-,
+  "Options.Env.TrophySound.Desc": "トロフィーを獲得したときに短い効果音を再生します。",
+
+  "Options.GnmMode.TrophyKey.Label": "トロフィーキー",
+  "Options.GnmMode.TrophyKey.Desc": "暗号化されたトロフィー名と説明に使用するPS4トロフィーキーです。GnmModeのトロフィー一覧と獲得通知に使用されます。ローカルに保存されます。変更後は実行中のゲームを再起動してください。",
+  "Options.GnmMode.TrophyKey.Placeholder": "32桁の16進数",
+  "Options.GnmMode.TrophyKey.Invalid": "16進数（0–9、A–F）を正確に32桁入力してください。キーを削除するには欄を空にしてください。入力が有効になるまで、以前の有効なキーが保持されます。",
+
   "Trophies.Title": "トロフィー",
   "Trophies.None": "このゲームにはトロフィーがありません。",
+  "Trophies.GnmMode.KeyHint": "PS4のトロフィーを読み込むにはトロフィーキーが必要な場合があります。{0} → GnmMode → {1}で入力してください。",
   "Trophies.Loading": "トロフィーを読み込み中…",
   "Trophies.Hidden": "隠しトロフィー",
   "Trophies.HiddenDescription": "クリックしてこのトロフィーを表示します。",
