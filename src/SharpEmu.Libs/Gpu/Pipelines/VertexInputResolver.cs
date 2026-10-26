@@ -34,6 +34,9 @@ public static class VertexInputResolver
     public static VertexInputInfo ResolveVertexInputs(CpuContext context, RegisteredShader shader, ReadOnlySpan<uint> userData,
         uint positionExportControl = 0, ClipSpaceTransform clipSpace = default)
     {
+        // Legacy fetches remain explicit buffer instructions in the frontend's IR, not AGC vertex tables.
+        if (shader.Frontend is { HasVertexTables: false })
+            return new VertexInputInfo { ScratchDwords = shader.ScratchDwords, PositionExportControl = positionExportControl, ClipSpace = clipSpace };
         if (!TryReadTables(context, shader, GpuCommands.Registers.UserScalarRegisters.Capacity, out var metadata, out var error))
         {
             throw SubmissionScheduler.Fatal($"The vertex program header is invalid: shader=0x{shader.CodeAddress:X16} error={error}.");
