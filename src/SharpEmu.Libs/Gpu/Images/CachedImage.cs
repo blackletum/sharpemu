@@ -78,6 +78,9 @@ public sealed unsafe partial class CachedImage : IDisposable
     public readonly List<CachedImageView> Views = new();
     public ImageUses Uses;
     public ImageBindingState Binding;
+
+    // Set while descriptor set 1 holds a view of this image: told when its layout, contents or registration change.
+    public Action<CachedImage>? HeapChanged;
     public bool Registered;
     public uint QueryEpoch;
     public ulong WatchBegin;
@@ -126,7 +129,7 @@ public sealed unsafe partial class CachedImage : IDisposable
             SharingMode = SharingMode.Exclusive,
             Samples = ImageDescription.VulkanSampleCount(Backing.Samples),
         };
-        if (!TrySelectSupportedImageConfiguration(device, ref create, allowCompressedImageFallback: OperatingSystem.IsMacOS()))
+        if (!TrySelectSupportedImageConfiguration(device, ref create))
         {
             throw SubmissionScheduler.Fatal(
                 $"The image format does not support the required usage: format={(int)create.Format} type={(int)create.ImageType} usage=0x{(uint)create.Usage:x} flags=0x{(uint)create.Flags:x} samples={Backing.Samples}.");
@@ -200,7 +203,7 @@ public sealed unsafe partial class CachedImage : IDisposable
             $"layers={create.ArrayLayers} levels={create.MipLevels} usage=0x{(uint)create.Usage:X} flags=0x{(uint)create.Flags:X} " +
             $"samples={create.Samples} allocation_bytes={allocationSize} memory_type_bits=0x{memoryTypeBits:X}.");
 
-    internal static bool TrySelectSupportedImageConfiguration(IImageFormatSupport device, ref ImageCreateInfo configuration, bool allowCompressedImageFallback)
+    internal static bool TrySelectSupportedImageConfiguration(IImageFormatSupport device, ref ImageCreateInfo configuration)
     {
         static bool SupportsImageConfiguration(IImageFormatSupport device, in ImageCreateInfo configuration) =>
             device.TryGetImageFormatProperties(configuration.Format, configuration.ImageType, configuration.Tiling, configuration.Usage, configuration.Flags, out var properties) &&
@@ -226,23 +229,7 @@ public sealed unsafe partial class CachedImage : IDisposable
             }
         }
 
-        if (!allowCompressedImageFallback || (configuration.Flags & ImageCreateFlags.CreateBlockTexelViewCompatibleBit) == 0)
-        {
-            return false;
-        }
-
-        // Remove block views and their storage usage when MoltenVK rejects them.
-        // Use the new configuration only if the device supports it.
-        var fallbackConfiguration = configuration;
-        fallbackConfiguration.Flags &= ~ImageCreateFlags.CreateBlockTexelViewCompatibleBit;
-        fallbackConfiguration.Usage &= ~ImageUsageFlags.StorageBit;
-        if (!SupportsImageConfiguration(device, fallbackConfiguration))
-        {
-            return false;
-        }
-
-        configuration = fallbackConfiguration;
-        return true;
+        return false;
     }
 
     // Vulkan allows only the levels of the extent's full mip chain. An uncompressed view of a block-compressed
@@ -359,6 +346,12 @@ public sealed unsafe partial class CachedImage : IDisposable
         {
             _maybeCpuDirty = true;
         }
+        else
+        {
+            return;
+        }
+
+        HeapChanged?.Invoke(this);
     }
 
     public bool IsCpuDirty => _cpuDirty || _maybeCpuDirty;
@@ -373,6 +366,8 @@ public sealed unsafe partial class CachedImage : IDisposable
         {
             _maybeCpuDirty = true;
         }
+
+        HeapChanged?.Invoke(this);
     }
 
     public bool NeedsMaybeCpuHash => _maybeCpuDirty && !_maybeHashValid;
@@ -451,6 +446,7 @@ public sealed unsafe partial class CachedImage : IDisposable
         _bufferHoldsGpuContents = false;
         GpuWriteSequence = Interlocked.Increment(ref _gpuWriteCounter);
         _guestPieceHashes = null;
+        HeapChanged?.Invoke(this);
     }
 
     public void ClearGpuModified() => _gpuModified = false;

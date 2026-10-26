@@ -1734,7 +1734,7 @@ public static partial class Gen5ShaderTranslator
         out uint sizeDwords,
         out string error)
     {
-        var opcode = ((word >> 18) & 0x7F) | ((word & 1) << 7);
+        var opcode = (word >> 18) & 0xFF;
         name = MubufOpcodeName(opcode);
         sizeDwords = (extra >> 24) == 0xFF ? 3u : 2u;
         error = string.Empty;
@@ -1805,6 +1805,14 @@ public static partial class Gen5ShaderTranslator
             0x4C => "BufferAtomicInc",
             0x50 => "BufferAtomicSwapX2",
             0x5A => "BufferAtomicOrX2",
+            0x80 => "BufferLoadFormatD16X",
+            0x81 => "BufferLoadFormatD16Xy",
+            0x82 => "BufferLoadFormatD16Xyz",
+            0x83 => "BufferLoadFormatD16Xyzw",
+            0x84 => "BufferStoreFormatD16X",
+            0x85 => "BufferStoreFormatD16Xy",
+            0x86 => "BufferStoreFormatD16Xyz",
+            0x87 => "BufferStoreFormatD16Xyzw",
             _ => $"MubufRaw{opcode:X2}",
         };
     }
@@ -2908,6 +2916,11 @@ public static partial class Gen5ShaderTranslator
                     "BufferStoreFormatXy" => 2u,
                     "BufferStoreFormatXyz" => 3u,
                     "BufferStoreFormatXyzw" => 4u,
+                    // The D16 forms hold two components in each register.
+                    "BufferLoadFormatD16X" or "BufferLoadFormatD16Xy" or
+                    "BufferStoreFormatD16X" or "BufferStoreFormatD16Xy" => 1u,
+                    "BufferLoadFormatD16Xyz" or "BufferLoadFormatD16Xyzw" or
+                    "BufferStoreFormatD16Xyz" or "BufferStoreFormatD16Xyzw" => 2u,
                     "BufferLoadUbyte" or
                     "BufferLoadSbyte" or
                     "BufferLoadUshort" or
