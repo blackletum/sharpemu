@@ -440,10 +440,13 @@ public sealed class DeviceAddressShaderTests(HeadlessVulkanFixture fixture, ITes
     }
 
     [Theory]
-    [InlineData(false, 77u)]
-    [InlineData(true, 119u)]
-    [InlineData(true, 111u)]
-    public void RuntimeFormattedDescriptorsRespectTheirFormatEncoding(bool split, uint format)
+    [InlineData(false, 77u, false)]
+    [InlineData(true, 119u, false)]
+    [InlineData(true, 111u, false)]
+    [InlineData(false, 77u, true)]
+    [InlineData(true, 119u, true)]
+    [InlineData(true, 111u, true)]
+    public void RuntimeFormattedDescriptorsRespectTheirFormatEncoding(bool split, uint format, bool linked)
     {
         var vulkan = fixture.Vulkan;
         if (!GatePrerequisites.Ready(vulkan, shaderInt64: true)) return;
@@ -457,8 +460,19 @@ public sealed class DeviceAddressShaderTests(HeadlessVulkanFixture fixture, ITes
             load,
             BufferAccess(32, "BufferStoreDwordx4", ResultRegister, 0, 4, vectorData: 5),
             EndProgram(40));
+        if (linked)
+        {
+            var caller = Program(MoveScalar(0, 14, 0x2000), MoveScalar(4, 15, 0),
+                MoveScalar(8, 20, 0), MoveScalar(12, 21, 0),
+                Sop1(16, "SSwappcB64", 14, Gen5Operand.Scalar(14)),
+                BufferAccess(20, "BufferStoreDwordx4", ResultRegister, 0, 4, vectorData: 5), EndProgram(28));
+            var callee = Program([.. program.Instructions.Take(program.Instructions.Count - 2),
+                Sop1(32, "SSetpcB64", 0, Gen5Operand.Scalar(14))]);
+            program = Gen5ShaderCallLinker.Link(caller,
+                [new(16, 14, 20, 14, caller.Address + 20, [new(0x2000, 0, callee)])]);
+        }
         var run = new Run(vulkan, program);
-        Assert.True(run.Plan.Memory.Find(24)!.DeviceDescriptor);
+        Assert.Contains(run.Plan.Memory.Entries, access => access.DeviceDescriptor);
         var data = new byte[64];
         WriteWord(data, 0, (uint)(GuestBase + 32));
         WriteWord(data, 4, (uint)(GuestBase >> 32) | (16u << 16));
