@@ -1648,6 +1648,22 @@ public static partial class Gen5ShaderTranslator
             out error);
     }
 
+    public static bool TryCreateDataShareInstruction(
+        uint pc,
+        uint word,
+        uint extra,
+        out Gen5ShaderInstruction instruction)
+    {
+        instruction = default!;
+        if (!DecodeDs(word, out var name, out _, out _))
+        {
+            return false;
+        }
+
+        instruction = CreateInstruction(pc, Gen5ShaderEncoding.Ds, name, [word, extra]);
+        return true;
+    }
+
     private static bool DecodeBuffer(
         uint word,
         string prefix,
