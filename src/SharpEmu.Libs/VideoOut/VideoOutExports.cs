@@ -1547,7 +1547,7 @@ public static partial class VideoOutExports
     }
 
     // The video-out export flip: paced on the guest thread, completed at submit.
-    private static int SubmitFlip(CpuContext ctx, int handle, int bufferIndex, int flipMode, long flipArg)
+    public static int SubmitFlip(CpuContext ctx, int handle, int bufferIndex, int flipMode, long flipArg)
     {
         var result = TryReserveFlipRequest(handle, bufferIndex, flipMode, flipArg, gpuQueued: false, out var requestId);
         if (result != 0)
