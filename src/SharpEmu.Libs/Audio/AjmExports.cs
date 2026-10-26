@@ -19,7 +19,7 @@ public static class AjmExports
     private const int OrbisAjmErrorCodecAlreadyRegistered = unchecked((int)0x80930009);
     private const int OrbisAjmErrorCodecNotRegistered = unchecked((int)0x8093000A);
     private const int OrbisAjmErrorJobCreation = unchecked((int)0x80930012);
-    private const uint Atrac9CodecType = 1;
+    public const uint Atrac9CodecType = 1;
     private const uint OpusCodecType = 24;
     // instanceId packs codecType into the high bits and the instance slot
     // into the low InstanceIdSlotBits bits (see AjmInstanceCreate's
@@ -38,11 +38,11 @@ public static class AjmExports
 
     // AjmJobFlags: version:3, codec:8, run_flags:2, control_flags:3,
     // reserved:29, sideband_flags:3.
-    private const ulong AjmJobRunFlagGetCodecInfo = 1UL << 11;
-    private const ulong AjmJobRunFlagMultipleFrames = 1UL << 12;
-    private const ulong AjmJobSidebandFlagGaplessDecode = 1UL << 45;
-    private const ulong AjmJobSidebandFlagFormat = 1UL << 46;
-    private const ulong AjmJobSidebandFlagStream = 1UL << 47;
+    public const ulong AjmJobRunFlagGetCodecInfo = 1UL << 11;
+    public const ulong AjmJobRunFlagMultipleFrames = 1UL << 12;
+    public const ulong AjmJobSidebandFlagGaplessDecode = 1UL << 45;
+    public const ulong AjmJobSidebandFlagFormat = 1UL << 46;
+    public const ulong AjmJobSidebandFlagStream = 1UL << 47;
 
     // AjmBuffer { u8* p_address; u64 size; }
     private const int AjmBufferDescriptorBytes = 16;
@@ -1474,11 +1474,11 @@ public static class AjmExports
     private const ulong AjmJobRunSplitBaseSize = 32;
     private const ulong AjmJobGetStatisticsSize = 88;
     private const int AjmStatisticsResultBytes = 48;
-    private const int AjmSidebandResultBytes = 8;
-    private const int AjmSidebandStreamBytes = 16;
-    private const int AjmSidebandFormatBytes = 24;
-    private const int AjmSidebandGaplessDecodeBytes = 8;
-    private const int AjmSidebandMFrameBytes = 8;
+    public const int AjmSidebandResultBytes = 8;
+    public const int AjmSidebandStreamBytes = 16;
+    public const int AjmSidebandFormatBytes = 24;
+    public const int AjmSidebandGaplessDecodeBytes = 8;
+    public const int AjmSidebandMFrameBytes = 8;
     private const int AjmSidebandCodecInfoBytes = 64;
     // AjmSidebandResult (8) + AjmSidebandStream (16) + AjmSidebandMFrame (8).
     private const int DecodeSidebandBytes =
