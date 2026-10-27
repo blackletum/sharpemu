@@ -160,9 +160,7 @@ public static class GcnImageDescriptor
             pitchedRequest.Description.MipLayout[0] = new MipLevelLayout { Offset = 0, Size = size, Pitch = linear.Pitch, Height = linear.Height };
             return pitched with { Request = pitchedRequest };
         }
-        if (descriptor.TileMode != GuestTileMode.RenderTarget ||
-            !ColorTargets.TryGetValue(descriptor.BaseAddress, out var target) ||
-            descriptor.Width + 1 > target.Pitch || descriptor.Height + 1 > target.Height)
+        if (descriptor.TileMode != GuestTileMode.RenderTarget)
             return ImageRequestBuilders.Texture(words, shape, shaderHash, imageIndex);
 
         // GNM placements can be 32 KiB aligned. Only known GPU attachments use the
