@@ -123,7 +123,8 @@ internal sealed partial class ShaderPipelineCache
         uint dimensionZ,
         bool indirect)
     {
-        if (kernel is null || source is null || !program.Available || program.Consumed)
+        if (kernel is null || source is null || !program.Available || program.Consumed ||
+            source.Registered.Frontend?.NormalizeBufferDescriptor is not null)
         {
             return program;
         }
