@@ -532,7 +532,8 @@ public sealed partial class RenderExecutor
         var writeStages = PipelineStageFlags.None;
         if (HasBufferWrites(vertexInput.Stage))
         {
-            writeStages |= state.Programs.MeshInput is null ? PipelineStageFlags.VertexShaderBit : PipelineStageFlags.MeshShaderBitExt;
+            writeStages |= state.Programs.MeshInput is not null ? PipelineStageFlags.MeshShaderBitExt
+                : vertexInput.Tessellation is not null ? PipelineStageFlags.TessellationEvaluationShaderBit : PipelineStageFlags.VertexShaderBit;
         }
 
         if (state.PixelActive && HasBufferWrites(pixelInput.Stage))
