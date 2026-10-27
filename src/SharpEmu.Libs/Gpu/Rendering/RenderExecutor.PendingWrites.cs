@@ -150,7 +150,7 @@ public sealed partial class RenderExecutor
                 continue;
             }
 
-            if (shapes is not null && index < shapes.Count && TryGetImageData(shapes[index], images[index], out var data))
+            if (shapes is not null && index < shapes.Count && TryGetImageData(program, shapes[index], images[index], index, out var data))
             {
                 Mark(data, sequence, PendingWriteKind.Image);
             }
@@ -165,7 +165,7 @@ public sealed partial class RenderExecutor
         }
     }
 
-    private static bool TryGetImageData(ImageResource image, uint[] words, out GuestSpan data)
+    private static bool TryGetImageData(ShaderProgramInfo program, ImageResource image, uint[] words, int imageIndex, out GuestSpan data)
     {
         data = default;
         if (new TextureDescriptorWords(words).BaseAddress == 0)
@@ -173,7 +173,11 @@ public sealed partial class RenderExecutor
             return false;
         }
 
-        data = ImageRequestBuilders.Texture(words, ImageRequestBuilders.ShapeOf(image)).Request.Description.Data;
+        var shape = ImageRequestBuilders.ShapeOf(image);
+        var resolution = program.Frontend is { } frontend
+            ? frontend.ResolveTexture(words, shape, program.Hash, imageIndex)
+            : ImageRequestBuilders.Texture(words, shape, program.Hash, imageIndex);
+        data = resolution.Request.Description.Data;
         return data.Size != 0;
     }
 }
