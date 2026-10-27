@@ -56,6 +56,8 @@ public sealed partial class GcnShaderFrontend : IShaderFrontend
     public uint VertexUserDataBase => 0;
     public bool HasVertexTables => false;
     public bool RequiresExplicitBufferLengths => true;
+    public bool RequiresOrderedImagePreparation => _imageDetiler is not null;
+    public bool SupportsParallelResolution => false;
     public BufferDescriptorNormalizer NormalizeBufferDescriptor => GcnBufferDescriptor.Normalize;
     public Func<long> ImageNormalizationVersion => NormalizationVersion;
     public ImageDescriptorNormalizer NormalizeImageDescriptor => _normalizeImageDescriptor;
@@ -63,7 +65,7 @@ public sealed partial class GcnShaderFrontend : IShaderFrontend
     public TextureRequestResolution ResolveTexture(ReadOnlySpan<uint> words, in ShaderImageShape shape,
         ulong shaderHash, int imageIndex) => GcnImageDescriptor.ResolveTexture(words, shape, shaderHash, imageIndex);
 
-    public void PrepareTexture(ReadOnlySpan<uint> words) => _imageDetiler?.Prepare(words);
+    public bool PrepareTexture(ReadOnlySpan<uint> words) => _imageDetiler?.Prepare(words) ?? true;
 
     public bool TryResolveImageCopy(CpuContext context, RegisteredShader shader, ReadOnlySpan<uint> userData,
         ComputeInputInfo input, Gen5ComputeSystemRegisters systemRegisters, uint x, uint y, uint z,

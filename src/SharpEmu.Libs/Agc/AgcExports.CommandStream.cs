@@ -249,7 +249,8 @@ public static partial class AgcExports
             {
                 _sink = value;
                 _resolvePool?.Dispose();
-                _resolvePool = value is not null && _executor is not null && _host.RenderHost is { } renderHost && _host.ResolveWorkerCount > 0
+                _resolvePool = value is not null && _executor is not null && _pipelines!.SupportsParallelResolution &&
+                    _host.RenderHost is { } renderHost && _host.ResolveWorkerCount > 0
                     ? new ResolvePool(this, renderHost, _host.ResolveWorkerCount)
                     : null;
             }

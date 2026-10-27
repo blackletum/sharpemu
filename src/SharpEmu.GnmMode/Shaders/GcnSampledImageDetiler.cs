@@ -65,24 +65,27 @@ internal sealed class GcnSampledImageDetiler(ICpuMemory memory, Func<ulong, ulon
         return Resolve(key, geometry, out destination, out failure);
     }
 
-    internal void Prepare(ReadOnlySpan<uint> words)
+    internal bool Prepare(ReadOnlySpan<uint> words)
     {
         if (words.Length < 2)
-            return;
+            return true;
         var address = ((ulong)words[0] | ((ulong)words[1] & 63) << 32) << 8;
         if (!_shadowKeys.TryGetValue(address, out var key))
-            return;
+            return true;
         var gpu = _gpuShadows.TryGetValue(key, out var gpuShadow) && gpuShadow.Address == address;
         if (gpu)
         {
             if (GnmGpuWrites.Buffers is not { } buffers || gpuShadow.Source.Buffer is not null &&
                 !buffers.ContentsChangedSince(key.Source, gpuShadow.Geometry.SourceBytes, gpuShadow.Source))
-                return;
-            TryDetileOnGpu(key, gpuShadow.Geometry, out _);
-            return;
+                return true;
+            return TryDetileOnGpu(key, gpuShadow.Geometry, out _);
         }
-        if (!Resolve(key, GeometryOf(key), out var destination, out _) || destination != address)
+        if (!Resolve(key, GeometryOf(key), out var resolved, out _) || resolved != address)
+        {
             GcnImageDescriptor.InvalidateNormalizations();
+            return false;
+        }
+        return true;
     }
 
     private Geometry GeometryOf(in ShadowKey key) => _geometries.GetOrAdd(

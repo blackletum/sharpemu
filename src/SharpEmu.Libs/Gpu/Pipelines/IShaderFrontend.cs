@@ -16,12 +16,14 @@ public interface IShaderFrontend
     uint VertexUserDataBase => 8;
     bool HasVertexTables => true;
     bool RequiresExplicitBufferLengths => false;
+    bool RequiresOrderedImagePreparation => false;
+    bool SupportsParallelResolution => true;
     BufferDescriptorNormalizer? NormalizeBufferDescriptor => null;
     ImageDescriptorNormalizer? NormalizeImageDescriptor => null;
     Func<long>? ImageNormalizationVersion => null;
     TextureRequestResolution ResolveTexture(ReadOnlySpan<uint> words, in ShaderImageShape shape,
         ulong shaderHash, int imageIndex) => ImageRequestBuilders.Texture(words, shape, shaderHash, imageIndex);
-    void PrepareTexture(ReadOnlySpan<uint> words) { }
+    bool PrepareTexture(ReadOnlySpan<uint> words) => true;
     bool TryResolveImageCopy(CpuContext context, RegisteredShader shader, ReadOnlySpan<uint> userData,
         ComputeInputInfo input, Gen5ComputeSystemRegisters systemRegisters, uint x, uint y, uint z,
         out ImageRequest source, out ImageRequest destination)
