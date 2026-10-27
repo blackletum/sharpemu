@@ -24,6 +24,7 @@ public static partial class AgcExports
         public DrawIndexedArguments IndexedArguments;
         public DrawAutoArguments AutoArguments;
         public long Sequence;
+        public long FrontendImageVersion;
         public ResolvedDraw? Record;
         public string? SerialReason;
         public Exception? Failure;
@@ -40,6 +41,7 @@ public static partial class AgcExports
             Record = null;
             SerialReason = null;
             Failure = null;
+            FrontendImageVersion = 0;
             Reads.Clear();
             Done.Reset();
         }
@@ -157,7 +159,7 @@ public static partial class AgcExports
                 throw new InvalidOperationException("A resolve worker failed.", failure);
             }
 
-            if (deferred.SerialReason is not null || deferred.Record is null || !_host.ValidateWorkerReads(deferred.Reads))
+            if (deferred.SerialReason is not null || deferred.Record is null || !ValidateDeferredReads(deferred))
             {
                 throw new SerialRequiredException("unresolved draw", resumable: true);
             }
@@ -166,7 +168,10 @@ public static partial class AgcExports
         }
 
         // At the stream position of a slice segment: whether a worker-resolved draw it recorded still holds.
-        internal bool ValidateDeferred(DeferredWork work) => work is not DeferredDraw deferred || _host.ValidateWorkerReads(deferred.Reads);
+        internal bool ValidateDeferred(DeferredWork work) => work is not DeferredDraw deferred || ValidateDeferredReads(deferred);
+
+        private bool ValidateDeferredReads(DeferredDraw deferred) =>
+            deferred.FrontendImageVersion == _pipelines!.FrontendImageVersion && _host.ValidateWorkerReads(deferred.Reads);
 
         private void CompleteDeferredDraw(DeferredDraw deferred)
         {
@@ -198,7 +203,7 @@ public static partial class AgcExports
             {
                 throw _host.Fatal("A deferred draw resolved to nothing.");
             }
-            else if (!_host.ValidateWorkerReads(deferred.Reads))
+            else if (!ValidateDeferredReads(deferred))
             {
                 Interlocked.Increment(ref _deferredInvalid);
                 _pool!.Return(record);
@@ -356,6 +361,7 @@ public static partial class AgcExports
             private void Resolve(Worker worker, DeferredDraw work)
             {
                 var host = _owner._host;
+                work.FrontendImageVersion = _owner._pipelines!.FrontendImageVersion;
                 var started = Stopwatch.GetTimestamp();
                 host.BeginWorkerResolve(work.Sequence, work.Reads);
                 try

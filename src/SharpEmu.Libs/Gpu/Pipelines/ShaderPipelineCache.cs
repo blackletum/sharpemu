@@ -19,6 +19,7 @@ namespace SharpEmu.Libs.Gpu.Pipelines;
 internal sealed partial class ShaderPipelineCache : IShaderPipelineProvider
 {
     internal bool SupportsParallelResolution => _registry.SupportsParallelResolution;
+    internal long FrontendImageVersion => _registry.FrontendImageVersion;
 
     private const uint VertexUserDataBase = 8;
     private const uint MaxPixelInputs = 32;

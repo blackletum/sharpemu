@@ -81,6 +81,7 @@ public sealed class ShaderHeaderRegistry
 
     public bool HasFrontend => _frontend is not null;
     internal bool SupportsParallelResolution => _frontend?.SupportsParallelResolution ?? true;
+    internal long FrontendImageVersion => _frontend?.ImageNormalizationVersion?.Invoke() ?? 0;
 
     public ShaderHeaderRegistry(CpuContext context, Func<ulong, ulong> headerOf, Func<ulong, FusedProgramParts?> fusedPartsOf,
         IShaderFrontend? frontend = null)
