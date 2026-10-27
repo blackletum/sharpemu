@@ -534,6 +534,7 @@ internal static class GnmCommandPackets
             Attrib2 = (hostHeight - 1) | ((width - 1) << 14),
             Attrib3 = (1u << 24) | ((uint)hostTile << 14),
         };
+        interpreter.TypedRegisters.MarkWritten(1u << (int)RegisterStamp.ColorTargets);
         GcnImageDescriptor.ObserveColorTarget(guestAddress, in target, pitch, height, tileIndex);
     }
 
