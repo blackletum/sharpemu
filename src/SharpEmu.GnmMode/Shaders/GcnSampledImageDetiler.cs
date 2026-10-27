@@ -9,6 +9,7 @@ using SharpEmu.GnmMode.Gpu;
 using SharpEmu.HLE;
 using SharpEmu.Libs.Gpu.Buffers;
 using SharpEmu.Libs.Gpu.Images;
+using SharpEmu.Libs.Gpu.GpuCommands;
 using SharpEmu.Libs.Gpu.Scheduling;
 
 namespace SharpEmu.GnmMode.Shaders;
@@ -32,6 +33,8 @@ internal sealed class GcnSampledImageDetiler(ICpuMemory memory, Func<ulong, ulon
     private readonly ConcurrentDictionary<ShadowKey, Shadow> _shadows = new();
     private readonly ConcurrentDictionary<ShadowKey, GpuShadow> _gpuShadows = new();
     private readonly ConcurrentDictionary<ulong, ShadowKey> _shadowKeys = new();
+    private readonly ConcurrentDictionary<ShadowKey, ulong> _preparedShadows = new();
+    private readonly ConcurrentDictionary<ulong, ShadowKey> _preparedKeys = new();
     private ulong _reservedBytes;
 
     private readonly record struct ShadowKey(ulong Source, uint Width, uint Height, uint Pitch, uint Layers, uint Levels,
@@ -44,7 +47,7 @@ internal sealed class GcnSampledImageDetiler(ICpuMemory memory, Func<ulong, ulon
     internal static void AdvanceEpoch() => Interlocked.Increment(ref _epoch);
 
     public bool TryDetile(ReadOnlySpan<uint> words, uint width, uint height, uint pitch, uint layers, uint levels,
-        bool pow2, GuestPixelFormat format, out ulong destination, out string failure)
+        bool pow2, GuestPixelFormat format, out ulong destination, out string failure, bool deferPreparation = false, bool allowPreparation = true)
     {
         destination = 0;
         failure = "";
@@ -62,7 +65,41 @@ internal sealed class GcnSampledImageDetiler(ICpuMemory memory, Func<ulong, ulon
             failure = invalid;
             return false;
         }
-        return Resolve(key, geometry, out destination, out failure);
+        return deferPreparation
+            ? Reserve(key, geometry, allowPreparation, out destination, out failure)
+            : Resolve(key, geometry, out destination, out failure);
+    }
+
+    private bool Reserve(ShadowKey key, Geometry geometry, bool allowPreparation, out ulong destination, out string failure)
+    {
+        destination = 0;
+        failure = "";
+        if (_preparedShadows.TryGetValue(key, out destination))
+            return true;
+        if (!allowPreparation)
+            throw new SerialResolveRequiredException("gcn image backing allocation");
+        Span<byte> probe = stackalloc byte[1];
+        if (!memory.CanRead(key.Source, geometry.SourceBytes) &&
+            (!memory.TryRead(key.Source, probe) || !memory.TryRead(key.Source + geometry.SourceBytes - 1, probe)))
+        {
+            failure = $"gcn-tile13-source-unreadable:0x{key.Source:X16}+0x{geometry.SourceBytes:X}";
+            return false;
+        }
+        lock (_gate)
+        {
+            if (_preparedShadows.TryGetValue(key, out destination))
+                return true;
+            var size = (geometry.DestinationBytes + 0x3FFFUL) & ~0x3FFFUL;
+            if (_reservedBytes + size > MaxScratchBytes || allocate(size) is not { } address || address == 0 || (address & 0xFF) != 0)
+            {
+                failure = $"gcn-tile13-backing-unavailable:0x{size:X}";
+                return false;
+            }
+            _reservedBytes += size;
+            _preparedKeys[address] = key;
+            _preparedShadows[key] = destination = address;
+            return true;
+        }
     }
 
     internal bool Prepare(ReadOnlySpan<uint> words)
@@ -70,6 +107,17 @@ internal sealed class GcnSampledImageDetiler(ICpuMemory memory, Func<ulong, ulon
         if (words.Length < 2)
             return true;
         var address = ((ulong)words[0] | ((ulong)words[1] & 63) << 32) << 8;
+        if (_preparedKeys.TryGetValue(address, out var prepared))
+        {
+            if (_gpuShadows.TryGetValue(prepared, out var existing) && existing.Address == address && existing.Source.Buffer is not null)
+            {
+                if (GnmGpuWrites.Buffers is not { } buffers)
+                    return false;
+                return !buffers.ContentsChangedSince(prepared.Source, existing.Geometry.SourceBytes, existing.Source) ||
+                    TryDetileOnGpu(prepared, existing.Geometry, out _, address);
+            }
+            return Resolve(prepared, GeometryOf(prepared), out var destination, out _, address) && destination == address;
+        }
         if (!_shadowKeys.TryGetValue(address, out var key))
             return true;
         var gpu = _gpuShadows.TryGetValue(key, out var gpuShadow) && gpuShadow.Address == address;
@@ -91,7 +139,7 @@ internal sealed class GcnSampledImageDetiler(ICpuMemory memory, Func<ulong, ulon
     private Geometry GeometryOf(in ShadowKey key) => _geometries.GetOrAdd(
         new GeometryKey(key.Width, key.Height, key.Pitch, key.Layers, key.Levels, key.Pow2, key.Format), BuildGeometry);
 
-    private bool Resolve(ShadowKey key, Geometry geometry, out ulong destination, out string failure)
+    private bool Resolve(ShadowKey key, Geometry geometry, out ulong destination, out string failure, ulong preparedAddress = 0)
     {
         destination = 0;
         failure = "";
@@ -102,7 +150,8 @@ internal sealed class GcnSampledImageDetiler(ICpuMemory memory, Func<ulong, ulon
         var gpuWritten = GnmGpuWrites.Overlap(baseAddress, sourceBytes);
         if (gpuWritten)
         {
-            if (_gpuShadows.TryGetValue(key, out var shadow) && shadow.Source.Buffer is not null)
+            if (_gpuShadows.TryGetValue(key, out var shadow) && shadow.Source.Buffer is not null &&
+                (preparedAddress == 0 || shadow.Address == preparedAddress))
             {
                 destination = shadow.Address;
                 GnmImageProfile.GpuReused();
@@ -114,7 +163,7 @@ internal sealed class GcnSampledImageDetiler(ICpuMemory memory, Func<ulong, ulon
                 throw new SubmissionScheduler.AbandonedWorkException(
                     $"A GCN thin-1D texture reads GPU-written memory: 0x{baseAddress:X16}+0x{sourceBytes:X}.");
             }
-            if (TryDetileOnGpu(key, geometry, out destination))
+            if (TryDetileOnGpu(key, geometry, out destination, preparedAddress))
                 return true;
             if (GnmGpuWrites.Buffers?.TrySynchronizeCpuRead(baseAddress, sourceBytes) != true)
             {
@@ -135,7 +184,8 @@ internal sealed class GcnSampledImageDetiler(ICpuMemory memory, Func<ulong, ulon
 
         var epoch = Volatile.Read(ref _epoch);
         // Published entries are immutable; ordinary cache reads need no allocation gate.
-        if (!gpuWritten && _shadows.TryGetValue(key, out var current) && current.Epoch == epoch)
+        if (!gpuWritten && _shadows.TryGetValue(key, out var current) && current.Epoch == epoch &&
+            (preparedAddress == 0 || current.Address == preparedAddress))
         {
             destination = current.Address;
             GnmImageProfile.DetileHit();
@@ -146,7 +196,7 @@ internal sealed class GcnSampledImageDetiler(ICpuMemory memory, Func<ulong, ulon
             failure = $"gcn-tile13-source-unreadable:0x{baseAddress:X16}+0x{sourceBytes:X}";
             return false;
         }
-        if (!gpuWritten && _shadows.TryGetValue(key, out var cached) && cached.Sample == sample &&
+        if (!gpuWritten && _shadows.TryGetValue(key, out var cached) && (preparedAddress == 0 || cached.Address == preparedAddress) && cached.Sample == sample &&
             epoch - cached.Verified < cached.Interval && _shadows.TryUpdate(key, cached with { Epoch = epoch }, cached))
         {
             destination = cached.Address;
@@ -164,7 +214,7 @@ internal sealed class GcnSampledImageDetiler(ICpuMemory memory, Func<ulong, ulon
         }
         var content = XxHash3.HashToUInt64(source);
         GnmImageProfile.Hashed(hashStart, sourceBytes);
-        if (_shadows.TryGetValue(key, out cached) && cached.Content == content &&
+        if (_shadows.TryGetValue(key, out cached) && (preparedAddress == 0 || cached.Address == preparedAddress) && cached.Content == content &&
             _shadows.TryUpdate(key, cached with
             {
                 Sample = sample, Epoch = epoch, Verified = epoch,
@@ -194,7 +244,7 @@ internal sealed class GcnSampledImageDetiler(ICpuMemory memory, Func<ulong, ulon
         }
         GnmImageProfile.CpuDetiled(detileStart);
 
-        return StoreShadow(key, sample, content, epoch, destBytes, linear, out destination, out failure);
+        return StoreShadow(key, sample, content, epoch, destBytes, linear, out destination, out failure, preparedAddress);
     }
 
     private readonly record struct GeometryKey(uint Width, uint Height, uint Pitch, uint Layers, uint Levels, bool Pow2,
@@ -279,14 +329,14 @@ internal sealed class GcnSampledImageDetiler(ICpuMemory memory, Func<ulong, ulon
     }
 
     private bool StoreShadow(ShadowKey key, ulong sample, ulong content, long epoch, ulong destBytes, byte[] linear,
-        out ulong destination, out string failure)
+        out ulong destination, out string failure, ulong preparedAddress)
     {
         destination = 0;
         failure = "";
         lock (_gate)
         {
             var hasShadow = _shadows.TryGetValue(key, out var shadow);
-            if (hasShadow && shadow.Content == content)
+            if (hasShadow && shadow.Content == content && (preparedAddress == 0 || shadow.Address == preparedAddress))
             {
                 _shadows[key] = shadow with { Sample = sample, Epoch = epoch, Verified = epoch };
                 destination = shadow.Address;
@@ -294,7 +344,9 @@ internal sealed class GcnSampledImageDetiler(ICpuMemory memory, Func<ulong, ulon
             }
             var allocationSize = (destBytes + 0x3FFFUL) & ~0x3FFFUL;
             var moved = false;
-            if (!hasShadow || _reservedBytes + allocationSize <= MaxScratchBytes)
+            if (preparedAddress != 0)
+                shadow = new Shadow(preparedAddress, sample, content, epoch, epoch, 1);
+            else if (!hasShadow || _reservedBytes + allocationSize <= MaxScratchBytes)
             {
                 if (_reservedBytes + allocationSize > MaxScratchBytes)
                 {
@@ -325,7 +377,7 @@ internal sealed class GcnSampledImageDetiler(ICpuMemory memory, Func<ulong, ulon
         }
     }
 
-    private bool TryDetileOnGpu(ShadowKey key, Geometry geometry, out ulong destination)
+    private bool TryDetileOnGpu(ShadowKey key, Geometry geometry, out ulong destination, ulong preparedAddress = 0)
     {
         destination = 0;
         if (GnmGpuWrites.Buffers is not { ImageCache: { } images } buffers)
@@ -333,7 +385,9 @@ internal sealed class GcnSampledImageDetiler(ICpuMemory memory, Func<ulong, ulon
         ulong address;
         lock (_gate)
         {
-            if (_gpuShadows.TryGetValue(key, out var shadow))
+            if (preparedAddress != 0)
+                address = preparedAddress;
+            else if (_gpuShadows.TryGetValue(key, out var shadow))
                 address = shadow.Address;
             else
             {

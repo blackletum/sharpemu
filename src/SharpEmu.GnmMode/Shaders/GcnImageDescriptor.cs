@@ -4,6 +4,7 @@
 using System.Collections.Concurrent;
 using SharpEmu.HLE.GpuMemory;
 using SharpEmu.Libs.Gpu.Images;
+using SharpEmu.Libs.Gpu.GpuCommands;
 using SharpEmu.ShaderCompiler;
 using SharpEmu.ShaderCompiler.Resources;
 
@@ -179,16 +180,16 @@ public static class GcnImageDescriptor
         => Normalize(words, stage, shaderHash, source, null);
 
     internal static uint[] Normalize(ReadOnlySpan<uint> words, ShaderStage stage, ulong shaderHash,
-        string source, GcnSampledImageDetiler? detiler)
+        string source, GcnSampledImageDetiler? detiler, bool deferPreparation = false, bool allowPreparation = true)
     {
         var start = GnmImageProfile.Start();
-        var normalized = NormalizeCore(words, stage, shaderHash, source, detiler);
+        var normalized = NormalizeCore(words, stage, shaderHash, source, detiler, deferPreparation, allowPreparation);
         GnmImageProfile.Normalized(start);
         return normalized;
     }
 
     private static uint[] NormalizeCore(ReadOnlySpan<uint> words, ShaderStage stage, ulong shaderHash,
-        string source, GcnSampledImageDetiler? detiler)
+        string source, GcnSampledImageDetiler? detiler, bool deferPreparation, bool allowPreparation)
     {
         if (words.Length is not (4 or 8))
             return Trace(words, stage, shaderHash, source, "invalid-descriptor-length", []);
@@ -204,7 +205,7 @@ public static class GcnImageDescriptor
             var unmarked = words.ToArray();
             unmarked[5] &= ~NativeStorageMarker;
             return IsColorTarget(unmarked, out _) || IsDepthTarget(unmarked)
-                ? NormalizeCore(unmarked, stage, shaderHash, source, detiler) : new uint[8];
+                ? NormalizeCore(unmarked, stage, shaderHash, source, detiler, deferPreparation, allowPreparation) : new uint[8];
         }
 
         var data = (words[1] >> 20) & 63;
@@ -265,14 +266,31 @@ public static class GcnImageDescriptor
             var slices = type == VolumeImageType ? (words[4] & 0x1FFF) + 1 : lastArray + 1;
             if (!detiler!.TryDetile(words, widthMinusOne + 1, heightMinusOne + 1, pitch, slices, lastLevel + 1,
                     ((words[3] >> 25) & 1) != 0, (GuestPixelFormat)format,
-                    out var destination, out var error))
+                    out var destination, out var error, deferPreparation, allowPreparation))
                 return Trace(words, stage, shaderHash, source, error, []);
             detiledAddress = destination;
         }
         if (linearRepack)
-            LinearPitches[addressBase] = new LinearLayout(pitch, widthMinusOne + 1, heightMinusOne + 1, (GuestPixelFormat)format);
+        {
+            var layout = new LinearLayout(pitch, widthMinusOne + 1, heightMinusOne + 1, (GuestPixelFormat)format);
+            if (!LinearPitches.TryGetValue(addressBase, out var current) || current != layout)
+            {
+                if (!allowPreparation)
+                    throw new SerialResolveRequiredException("gcn linear image layout");
+                LinearPitches[addressBase] = layout;
+                InvalidateNormalizations();
+            }
+        }
         else if (tile != 13 && !colorTarget && !depthTarget)
-            LinearPitches.TryRemove(addressBase, out _);
+        {
+            if (LinearPitches.ContainsKey(addressBase))
+            {
+                if (!allowPreparation)
+                    throw new SerialResolveRequiredException("gcn linear image layout");
+                if (LinearPitches.TryRemove(addressBase, out _))
+                    InvalidateNormalizations();
+            }
+        }
 
         // GCN W2 WIDTH[13:0] is contiguous. AGC moves its low two bits to
         // W1[31:30] and the other twelve bits to W2[11:0].

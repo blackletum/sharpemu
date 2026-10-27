@@ -62,6 +62,9 @@ public sealed partial class GcnShaderFrontend : IShaderFrontend
     public Func<long> ImageNormalizationVersion => NormalizationVersion;
     public ImageDescriptorNormalizer NormalizeImageDescriptor => _normalizeImageDescriptor;
 
+    public uint[] NormalizeImageForResolution(ReadOnlySpan<uint> words, ShaderStage stage, ulong shaderHash, string source, bool allowPreparation) =>
+        GcnImageDescriptor.Normalize(words, stage, shaderHash, source, _imageDetiler, deferPreparation: true, allowPreparation);
+
     public TextureRequestResolution ResolveTexture(ReadOnlySpan<uint> words, in ShaderImageShape shape,
         ulong shaderHash, int imageIndex) => GcnImageDescriptor.ResolveTexture(words, shape, shaderHash, imageIndex);
 
