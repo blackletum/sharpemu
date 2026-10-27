@@ -71,6 +71,11 @@ public sealed partial class RenderExecutor
 
     internal bool DrawHasTargets(RegisterBanks banks)
     {
+        if (ConsumesColorMetadataOperation(banks.Context))
+        {
+            return false;
+        }
+
         var layout = ResolveTargetLayout(banks);
         return layout.ColorCount != 0 || layout.Depth is not null;
     }
