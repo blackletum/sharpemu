@@ -134,6 +134,9 @@ internal interface IShaderPipelineHost
     bool TryReadResidentGuestBytes(ulong address, Span<byte> destination, bool clean) => false;
 
     bool TryCopyImage(in ImageRequest source, in ImageRequest destination) => false;
+
+    uint[] NormalizeImageDescriptor(IShaderFrontend frontend, ReadOnlySpan<uint> words,
+        ShaderStage stage, ulong shaderHash, string source) => frontend.NormalizeImageForResolution(words, stage, shaderHash, source, true);
     // A resident read that refuses instead of waiting for pending command-thread work.
     bool TryPeekResidentGuestBytes(ulong address, Span<byte> destination) => false;
 

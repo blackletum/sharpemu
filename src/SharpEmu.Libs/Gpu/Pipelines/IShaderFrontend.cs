@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 using SharpEmu.HLE;
+using SharpEmu.Libs.Gpu.GpuCommands;
 using SharpEmu.Libs.Gpu.Images;
 using SharpEmu.Libs.Gpu.Rendering;
 using SharpEmu.ShaderCompiler;
@@ -20,6 +21,12 @@ public interface IShaderFrontend
     bool SupportsParallelResolution => true;
     BufferDescriptorNormalizer? NormalizeBufferDescriptor => null;
     ImageDescriptorNormalizer? NormalizeImageDescriptor => null;
+    uint[] NormalizeImageForResolution(ReadOnlySpan<uint> words, ShaderStage stage, ulong shaderHash, string source, bool allowPreparation)
+    {
+        if (!allowPreparation && RequiresOrderedImagePreparation)
+            throw new SerialResolveRequiredException("frontend image preparation");
+        return NormalizeImageDescriptor is { } normalize ? normalize(words, stage, shaderHash, source) : words.ToArray();
+    }
     Func<long>? ImageNormalizationVersion => null;
     TextureRequestResolution ResolveTexture(ReadOnlySpan<uint> words, in ShaderImageShape shape,
         ulong shaderHash, int imageIndex) => ImageRequestBuilders.Texture(words, shape, shaderHash, imageIndex);

@@ -518,7 +518,8 @@ internal static unsafe partial class VulkanVideoPresenter
 
             var storage = image.ResourceClass == ShaderCompiler.Resources.ImageResourceClass.Storage;
             EnsureBatchedGuestCommands();
-            program.Frontend?.PrepareTexture(words);
+            if (program.Frontend?.PrepareTexture(words) == false)
+                words = new uint[8];
             var shape = ImageRequestBuilders.ShapeOf(image);
             var key = ImageBindingKey.Of(words, shape);
             var memos = _imageBindingMemos ??= new Dictionary<ImageBindingKey, ImageBindingMemo>();
@@ -763,8 +764,13 @@ internal static unsafe partial class VulkanVideoPresenter
         {
             if (MeshDrawTrace.Active) MeshDrawTrace.Write("stage-binding", $"stage={stage.Program?.Stage} hash=0x{stage.Program?.Hash:X16} shaderBase=0x{stage.ShaderBase:X16} userData={string.Join(",", stage.Resources.UserData.Select(value => value.ToString("X8")))}");
             using var profileScope = RenderPhaseProfile.MeasureDetail(RenderPhaseProfile.Phase.DescriptorPreparation);
-            var preparation = RequirePreparation();
             var program = RequireProgram(stage);
+            if (_worker && program.Frontend?.RequiresOrderedImagePreparation == true && stage.Resources.Images.Length != 0)
+            {
+                throw Serial("frontend image preparation", resumable: true);
+            }
+
+            var preparation = RequirePreparation();
             var resources = program.Resources!;
             var layout = program.Bindings!;
             var snapshot = stage.Resources;
@@ -797,6 +803,13 @@ internal static unsafe partial class VulkanVideoPresenter
                     $"samplers={snapshot.Samplers.Length}/{info.Samplers.Count} buffers={snapshot.Buffers.Length}/{info.Buffers.Count}.");
             }
 
+            var frontendReady = true;
+            if (program.Frontend is { RequiresOrderedImagePreparation: true } frontend)
+            {
+                foreach (var words in snapshot.Images)
+                    frontendReady &= frontend.PrepareTexture(words);
+            }
+
             var preparations = StagePreparationsOf(program);
             var movieActive = _presenter._hostMovieFramePixels is not null;
             if (movieActive && _worker)
@@ -804,7 +817,7 @@ internal static unsafe partial class VulkanVideoPresenter
                 throw Serial("host movie");
             }
 
-            if (!movieActive && !Gpu.Images.ImageClearTrace.Enabled && !MeshDrawTrace.Active &&
+            if (frontendReady && !movieActive && !Gpu.Images.ImageClearTrace.Enabled && !MeshDrawTrace.Active &&
                 TryFindStagePreparation(preparations, snapshot, stage.ShaderBase, out var memo))
             {
                 return ReuseStagePreparation(preparation, stage, program, memo);
@@ -870,7 +883,8 @@ internal static unsafe partial class VulkanVideoPresenter
                 ValidateDrawImageTypes(prepared);
             if (!movieActive && layout.CallTargetCount == 0 && layout.CallArgumentCount == 0 && !layout.UsesBindlessHeap)
             {
-                NoteStagePreparation(preparations, prepared, snapshot, stage.ShaderBase);
+                if (frontendReady)
+                    NoteStagePreparation(preparations, prepared, snapshot, stage.ShaderBase);
             }
 
             if (RenderTrace.Enabled && RenderTrace.Pipeline())

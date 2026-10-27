@@ -309,6 +309,18 @@ internal sealed class ShaderProgramCache
         _functions = new ShaderFunctionCache(_readResidentGuestBytes);
     }
 
+    private ImageDescriptorNormalizer? ImageNormalizer(IShaderFrontend? frontend)
+    {
+        if (frontend?.NormalizeImageDescriptor is not { } normalizer)
+        {
+            return null;
+        }
+
+        return frontend.RequiresOrderedImagePreparation
+            ? (words, stage, hash, source) => _host.NormalizeImageDescriptor(frontend, words, stage, hash, source)
+            : normalizer;
+    }
+
     public int ProgramCount => _programs.Count;
 
     public IEnumerable<ProgramSourceEntry> Entries
@@ -842,7 +854,7 @@ internal sealed class ShaderProgramCache
 
     // With runtimeRecords, a program whose callees cannot read their records at run time is refused (null), and its caller
     // links a copy per record from then on (RefuseRuntimeCallRecords).
-    private static ProgramSourceEntry? LinkProgram(Gen5ShaderProgram caller, ShaderCallLibrary library, ShaderStage stage, ulong hash,
+    private ProgramSourceEntry? LinkProgram(Gen5ShaderProgram caller, ShaderCallLibrary library, ShaderStage stage, ulong hash,
         uint userDataBase, uint userDataCount, uint waveSize, Action<ShaderResourcePlan>? beforeResourceTracking, bool runtimeRecords = false,
         bool callMarks = false, IShaderFrontend? frontend = null)
     {
@@ -854,7 +866,7 @@ internal sealed class ShaderProgramCache
             plan = ShaderResourcePlan.Extract(program, stage, hash, userDataBase, userDataCount,
                 beforeResourceTracking: beforeResourceTracking, waveSize: waveSize, callRecords: runtimeRecords, callMarks: callMarks,
                 normalizeBufferDescriptor: frontend?.NormalizeBufferDescriptor,
-                normalizeImageDescriptor: frontend?.NormalizeImageDescriptor,
+                normalizeImageDescriptor: ImageNormalizer(frontend),
                 imageNormalizationVersion: frontend?.ImageNormalizationVersion);
         }
         catch (Exception exception) when (runtimeRecords && exception is InvalidOperationException or ResourcePlanException)
@@ -1227,7 +1239,7 @@ internal sealed class ShaderProgramCache
                     _ => 32u,
                 }, dynamicUserData: options.VertexInfo?.StartInstanceUserData ?? -1,
                 normalizeBufferDescriptor: source.Registered.Frontend?.NormalizeBufferDescriptor,
-                normalizeImageDescriptor: source.Registered.Frontend?.NormalizeImageDescriptor,
+                normalizeImageDescriptor: ImageNormalizer(source.Registered.Frontend),
                 imageNormalizationVersion: source.Registered.Frontend?.ImageNormalizationVersion);
         }
         catch (ResourcePlanException exception)

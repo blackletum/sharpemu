@@ -6,6 +6,7 @@ namespace SharpEmu.Libs.VideoOut;
 using System.Diagnostics;
 using SharpEmu.HLE.GpuMemory;
 using SharpEmu.Libs.Gpu;
+using SharpEmu.Libs.Gpu.GpuCommands;
 using SharpEmu.Libs.Gpu.Images;
 using SharpEmu.Libs.Gpu.Pipelines;
 using SharpEmu.Libs.Gpu.Rendering;
@@ -73,6 +74,30 @@ internal static unsafe partial class VulkanVideoPresenter
         bool IShaderPipelineHost.TryCopyImage(in ImageRequest source, in ImageRequest destination) =>
             _imageCache.TryCopyImage(source, destination);
         bool IShaderPipelineHost.TableBlocks => true;
+
+        uint[] IShaderPipelineHost.NormalizeImageDescriptor(IShaderFrontend frontend, ReadOnlySpan<uint> words,
+            ShaderStage stage, ulong shaderHash, string source)
+        {
+            if (OnResolveWorker)
+            {
+                return frontend.NormalizeImageForResolution(words, stage, shaderHash, source, false);
+            }
+
+            if (OnCommandThread)
+            {
+                try
+                {
+                    return frontend.NormalizeImageForResolution(words, stage, shaderHash, source, false);
+                }
+                catch (SerialResolveRequiredException)
+                {
+                }
+                var copy = words.ToArray();
+                return _commandThread!.Run(() => frontend.NormalizeImageForResolution(copy, stage, shaderHash, source, true));
+            }
+
+            return frontend.NormalizeImageForResolution(words, stage, shaderHash, source, true);
+        }
 
         // Wave64 compute runs natively when the device's subgroup is that wide; smaller devices emulate it.
         bool IShaderPipelineHost.ComputeWave64SubgroupNative =>
