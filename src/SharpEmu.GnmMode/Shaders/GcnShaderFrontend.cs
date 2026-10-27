@@ -1,7 +1,6 @@
 // Copyright (C) 2026 SharpEmu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using SharpEmu.HLE;
 using SharpEmu.Libs.Gpu.Pipelines;
@@ -38,7 +37,6 @@ public sealed partial class GcnShaderFrontend : IShaderFrontend
         GcnImageDescriptor.ResetLayouts();
         GnmVideoOutExports.ResetDisplayTargets();
         GcnStageResources.Reset();
-        LastUserData.Clear();
     }
 
     public (ulong Address, ulong Bytes) TessellationLocalDataRing
@@ -77,14 +75,13 @@ public sealed partial class GcnShaderFrontend : IShaderFrontend
         var binary = GcnShaderBinary.Read(context.Memory, codeAddress);
         if (label == "compute" && binary.ShaderType != 4)
             throw new InvalidDataException($"Expected a GCN compute shader, found type {binary.ShaderType}.");
-        if (!userData.IsEmpty)
-            LastUserData[codeAddress] = userData.ToArray();
         // One VS can use different vertex layouts in successive deferred draws.
         // Its fetch target belongs to this draw's SGPR snapshot, not the code address.
         var (continuation, continuationSize) = label == "vertex" ? FetchShader(context.Memory, codeAddress, userData) : default;
         return new RegisteredShader(codeAddress, binary.InfoAddress, binary.CodeSize, 0, 0, 0, 0, 0, 0)
         {
             Frontend = this,
+            FrontendUserData = userData.ToArray(),
         } with { ContinuationAddress = continuation, ContinuationSizeBytes = continuationSize };
     }
 
@@ -95,12 +92,11 @@ public sealed partial class GcnShaderFrontend : IShaderFrontend
         var localUserData = userData[..Math.Min(userData.Length, GcnTessellationProgram.StageUserScalars)];
         var hullUserData = userData.Length > GcnTessellationProgram.StageUserScalars
             ? userData[GcnTessellationProgram.StageUserScalars..] : [];
-        LastUserData[localAddress] = localUserData.ToArray();
-        LastUserData[hullAddress] = hullUserData.ToArray();
         var fetch = FetchShader(context.Memory, localAddress, localUserData);
         return new RegisteredShader(localAddress, local.InfoAddress, local.CodeSize, 0, 0, 0, 0, hullAddress, hull.CodeSize)
         {
             Frontend = this,
+            FrontendUserData = userData.ToArray(),
             AdditionalRanges = fetch.Address == 0 ? [] : [fetch],
         };
     }
@@ -117,7 +113,6 @@ public sealed partial class GcnShaderFrontend : IShaderFrontend
         return default;
     }
 
-    private static readonly ConcurrentDictionary<ulong, uint[]> LastUserData = new();
     private static readonly Func<long> NormalizationVersion = () => GcnImageDescriptor.NormalizationVersion;
 
     private const uint FetchShaderCall = 0xBE802100;
@@ -168,9 +163,13 @@ public sealed partial class GcnShaderFrontend : IShaderFrontend
         if (stage == ShaderStage.Compute && shader.IsFused)
         {
             program = default!;
+            var userData = shader.FrontendUserData.Span;
+            var localData = userData[..Math.Min(userData.Length, GcnTessellationProgram.StageUserScalars)];
+            var hullData = userData.Length > GcnTessellationProgram.StageUserScalars
+                ? userData[GcnTessellationProgram.StageUserScalars..] : [];
             if (!TryDecodeProgram(context, shader.CodeAddress, shader.CodeSizeBytes,
-                    shader.AdditionalRanges is [var fetch, ..] ? fetch.Address : 0, out var local, out error) ||
-                !TryDecodeProgram(context, shader.ContinuationAddress, shader.ContinuationSizeBytes, 0, out var hull, out error))
+                    shader.AdditionalRanges is [var fetch, ..] ? fetch.Address : 0, localData, out var local, out error) ||
+                !TryDecodeProgram(context, shader.ContinuationAddress, shader.ContinuationSizeBytes, 0, hullData, out var hull, out error))
                 return false;
             return GcnTessellationProgram.TryJoinHull(local, hull, shader.CodeAddress, shader.ContinuationAddress, out program, out error);
         }
@@ -181,14 +180,15 @@ public sealed partial class GcnShaderFrontend : IShaderFrontend
     }
 
     public bool TryDecode(CpuContext context, RegisteredShader shader, out Gen5ShaderProgram program, out string error) =>
-        TryDecodeProgram(context, shader.CodeAddress, shader.CodeSizeBytes, shader.ContinuationAddress, out program, out error);
+        TryDecodeProgram(context, shader.CodeAddress, shader.CodeSizeBytes, shader.ContinuationAddress, shader.FrontendUserData.Span,
+            out program, out error);
 
     private bool TryDecodeProgram(CpuContext context, ulong codeAddress, uint codeSize, ulong fetchAddress,
-        out Gen5ShaderProgram program, out string error)
+        ReadOnlySpan<uint> userData, out Gen5ShaderProgram program, out string error)
     {
         if (!GcnShaderDecoder.TryDecode(context.Memory, codeAddress, codeSize, out program, out error))
             return false;
-        if (LastUserData.TryGetValue(codeAddress, out var userData))
+        if (!userData.IsEmpty)
             program = GcnShaderDecoder.WithVolumeImages(program, context.Memory, userData);
         // Pixel reads must see GPU-produced attachments, not stale guest buffer bytes.
         var sampledLoads = program.Instructions.Any(instruction => instruction.Control is Gen5ExportControl { Target: <= 8 });

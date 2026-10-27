@@ -21,6 +21,7 @@ public sealed record RegisteredShader(
 {
     public uint ContinuationScratchDwords { get; init; }
     public IShaderFrontend? Frontend { get; init; }
+    public ReadOnlyMemory<uint> FrontendUserData { get; init; }
     public (ulong Address, uint SizeBytes)[] AdditionalRanges { get; init; } = [];
 
     public bool IsFused => ContinuationAddress != 0;
