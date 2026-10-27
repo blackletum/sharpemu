@@ -576,6 +576,10 @@ internal sealed partial class RenderRecorder : IResolvedCommandSink
         {
             _host.DrawIndexedIndirect(indirectArguments);
         }
+        else if (record.Kind == ResolvedDrawKind.Tessellation)
+        {
+            _host.Draw(draw.Count, 1, 0, 0);
+        }
         else
         {
             EmitDraw(record.PrimitiveType, vertexInput, in draw, in emission);
