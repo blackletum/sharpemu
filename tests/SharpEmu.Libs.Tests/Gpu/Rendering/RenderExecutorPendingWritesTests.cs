@@ -1,8 +1,13 @@
 // Copyright (C) 2026 SharpEmu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+using SharpEmu.HLE;
+using SharpEmu.Libs.Gpu.Images;
+using SharpEmu.Libs.Gpu.Pipelines;
 using SharpEmu.Libs.Gpu.Rendering;
+using SharpEmu.Libs.Tests.Gpu.Images;
 using SharpEmu.Libs.Tests.Gpu.Scheduling;
+using SharpEmu.ShaderCompiler;
 using SharpEmu.ShaderCompiler.Resources;
 using Xunit;
 using static SharpEmu.Libs.Tests.Gpu.Rendering.RenderExecutorFixtures;
@@ -25,6 +30,25 @@ public sealed class RenderExecutorPendingWritesTests : IDisposable
         public void Record(ResolvedDraw record) => Draws.Add(record);
 
         public void Record(ResolvedDispatch record) => Dispatches.Add(record);
+    }
+
+    private sealed class TextureFrontend(TextureRequestResolution resolution) : IShaderFrontend
+    {
+        public ulong CacheDomain => 1;
+
+        public int Resolutions { get; private set; }
+
+        public TextureRequestResolution ResolveTexture(ReadOnlySpan<uint> words, in ShaderImageShape shape, ulong shaderHash, int imageIndex)
+        {
+            Resolutions++;
+            return resolution;
+        }
+
+        public RegisteredShader ReadShader(CpuContext context, ulong codeAddress, string label, ReadOnlySpan<uint> userData = default) =>
+            throw new NotSupportedException();
+
+        public bool TryDecode(CpuContext context, RegisteredShader shader, out Gen5ShaderProgram program, out string error) =>
+            throw new NotSupportedException();
     }
 
     private const ulong WrittenBuffer = RecordingRenderHost.MemoryBase + 0x70_0000;
@@ -98,6 +122,54 @@ public sealed class RenderExecutorPendingWritesTests : IDisposable
         Assert.Equal(2, _sink.Dispatches.Count);
         Assert.Equal(2, _sink.Dispatches[1].Sequence);
         Assert.False(_pending.TryGetPending(WrittenBuffer + 0x40, 4, out _));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void StorageImageWritesUseTheFrontendFootprintAndPreserveItsGuestAddress(bool dispatch)
+    {
+        const ulong address = 0x170008000;
+        var words = RegisterWords.Texture(address, GuestPixelFormat.Bits11_11_10Float, 256, 256, tile: GuestTileMode.RenderTarget);
+        var original = words.ToArray();
+        var shape = new ShaderImageShape(false, false, false, true, false, TextureNumericClass.Float);
+        var aligned = RegisterWords.Texture(address + 0x8000, GuestPixelFormat.Bits11_11_10Float, 256, 256, tile: GuestTileMode.RenderTarget);
+        var resolution = ImageRequestBuilders.Texture(aligned, shape);
+        var request = resolution.Request;
+        request.Description.Data = request.Description.Data with { Address = address };
+        var frontend = new TextureFrontend(resolution with { Request = request });
+        var image = new ImageResource
+        {
+            ResourceClass = SharpEmu.ShaderCompiler.Resources.ImageResourceClass.Storage,
+            NumericClass = ImageNumericClass.Float,
+            Dimension = ImageDimension.Dim2D,
+            Written = true,
+        };
+        var program = new ShaderProgramInfo
+        {
+            Stage = dispatch ? ShaderStageKind.Compute : ShaderStageKind.Pixel,
+            Frontend = frontend,
+            Images = [new ImageResourceInfo(SharpEmu.Libs.Gpu.Rendering.ImageResourceClass.Storage, true)],
+            Resources = new SpecializedResourceInfo { Info = new ShaderResourceInfo { Images = [image] } },
+        };
+        var stage = new ShaderStageResources(program, new ResourceSnapshot { Images = [words] });
+        if (dispatch)
+        {
+            _pipelines.Compute = ComputeProgram(stage);
+            _executor.Dispatch(1, Banks(), 1, 1, 1, 0x41);
+        }
+        else
+        {
+            _pipelines.Graphics = Programs(pixelStage: stage);
+            _executor.DrawAuto(1, Banks(), Auto(3));
+        }
+
+        Assert.Equal(1, frontend.Resolutions);
+        Assert.True(_pending.TryGetPending(address, request.Description.Data.Size, out var sequence));
+        Assert.Equal(1, sequence);
+        Assert.False(_pending.TryGetPending(address - 1, 1, out _));
+        Assert.False(_pending.TryGetPending(address + request.Description.Data.Size, 1, out _));
+        Assert.Equal(original, words);
     }
 
     [Fact]

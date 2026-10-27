@@ -390,6 +390,36 @@ public sealed class RenderExecutorDrawTests : IDisposable
     }
 
     [Theory]
+    [InlineData(2)]
+    [InlineData(5)]
+    [InlineData(6)]
+    public void ColorMetadataModes_DoNotResolveUnusedDepthStateBeforeTheDraw(byte mode)
+    {
+        var banks = Banks(withDepth: true);
+        banks.Context.ColorControl.Mode = mode;
+        banks.Context.DepthTarget = banks.Context.DepthTarget with { ZInfo = 0 };
+
+        Assert.False(_executor.DrawHasTargets(banks));
+        _executor.DrawIndexed(1, banks, Indexed(3));
+        _executor.DrawAuto(1, banks, Auto(3));
+
+        Assert.Equal(2, _host.Calls.Count(call => call == "reset_bindings"));
+        Assert.DoesNotContain(_host.Calls, call => call.StartsWith("find_image", StringComparison.Ordinal));
+        Assert.Empty(_pipelines.Calls);
+    }
+
+    [Fact]
+    public void NormalDraws_StillRejectAnUnsupportedDepthFormat()
+    {
+        var banks = Banks(withDepth: true);
+        banks.Context.DepthTarget = banks.Context.DepthTarget with { ZInfo = 0 };
+
+        var exception = Assert.Throws<SchedulerFatalException>(() => _executor.DrawHasTargets(banks));
+
+        Assert.Contains("zFormat=0 stencil=False", exception.Message);
+    }
+
+    [Theory]
     [InlineData(0)]
     [InlineData(1)]
     [InlineData(3)]

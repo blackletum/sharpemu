@@ -40,6 +40,13 @@ public sealed unsafe partial class RenderHostDeviceTests
     public void Tessellation_SuccessiveBatchesReuseTheFactorRingAfterThePreviousDraw() =>
         RenderTessellationPatch(0, true, true, patchCount: 2);
 
+    [Fact]
+    public void Tessellation_GcnPatchPrimitiveSubmitsWholeControlPointBatches()
+    {
+        using var fatal = new SharpEmu.Libs.Tests.Gpu.Scheduling.FatalScope();
+        RenderTessellationPatch(1, true, true, patchCount: 2, primitiveType: 9);
+    }
+
     // With the guest's off-chip configuration, hull groups that fit run in one dispatch, each
     // writing its factors to its own run of the ring, and one draw consumes them all.
     [Fact]
@@ -71,7 +78,7 @@ public sealed unsafe partial class RenderHostDeviceTests
         RenderTessellationPatch(0, false, true, verifyOffset: true, indexed: indexed);
 
     private void RenderTessellationPatch(float firstOuter, bool visible, bool computeFactors, uint patchCount = 1,
-        bool verifyOffset = false, bool indexed = false, uint ringPatches = 1)
+        bool verifyOffset = false, bool indexed = false, uint ringPatches = 1, uint primitiveType = 4)
     {
         if (!Ready()) return;
         Assert.False(GatePrerequisites.DeviceRequired && !_vulkan!.SupportsTessellation,
@@ -96,6 +103,7 @@ public sealed unsafe partial class RenderHostDeviceTests
         try
         {
             var banks = Banks(words);
+            banks.UserConfig.PrimitiveType = primitiveType;
             if (computeFactors)
             {
                 banks.Context.ShaderStages = 1u | (1u << 2) | (1u << 3) | (1u << 8) | (1u << 13) | (1u << 25);

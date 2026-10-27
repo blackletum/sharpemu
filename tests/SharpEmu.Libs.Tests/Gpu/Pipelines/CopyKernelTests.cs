@@ -2,11 +2,14 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 using System.Buffers.Binary;
+using SharpEmu.HLE;
 using SharpEmu.Libs.Gpu.GpuCommands.Registers;
 using SharpEmu.Libs.Gpu.Pipelines;
 using SharpEmu.Libs.Gpu.Rendering;
 using SharpEmu.Libs.Tests.Gpu.Rendering;
 using SharpEmu.Libs.Tests.Gpu.Scheduling;
+using SharpEmu.ShaderCompiler;
+using SharpEmu.ShaderCompiler.Resources;
 using SharpEmu.ShaderCompiler.Tests.Evaluation;
 using Xunit;
 
@@ -21,6 +24,36 @@ public sealed class CopyKernelTests
     private const ulong DestinationAddress = PipelineTestGuest.MemoryBase + 0x30000;
     private const ulong ControlAddress = PipelineTestGuest.MemoryBase + 0xF0000;
     private const uint Untouched = 0xEEEEEEEE;
+
+    private sealed class DescriptorFrontend(RegisteredShader shader, bool normalized) : IShaderFrontend
+    {
+        public ulong CacheDomain => 1;
+        public BufferDescriptorNormalizer? NormalizeBufferDescriptor => normalized ? words => words.ToArray() : null;
+        public RegisteredShader ReadShader(CpuContext context, ulong codeAddress, string label, ReadOnlySpan<uint> userData = default) =>
+            shader with { HeaderAddress = 0, Frontend = this };
+
+        public bool TryDecode(CpuContext context, RegisteredShader registered, out Gen5ShaderProgram program, out string error) =>
+            Gen5ShaderTranslator.TryDecodeProgram(context, registered.CodeAddress, out program, out error);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void KernelPredictionDoesNotInterpretDescriptorsThatRequireFrontendNormalization(bool normalized)
+    {
+        using var fatal = new FatalScope();
+        var guest = Guest(4, 2, [3, 4]);
+        var frontend = new DescriptorFrontend(guest.Registry.Require(CodeAddress, "compute"), normalized);
+        var registry = new ShaderHeaderRegistry(guest.Context, _ => 0, _ => null, frontend);
+        var cache = new ShaderPipelineCache(guest.Context, guest.Host, guest.Compiler, registry);
+
+        var result = cache.GetComputeProgram(Registers(2, 64), new ShaderInterfaceRegisters(), 0x8001, 1, 1, 1);
+
+        Assert.True(result.Available);
+        Assert.False(result.Consumed);
+        Assert.Equal(normalized, result.KnownWrite is null);
+        Assert.Equal(Untouched, Destination(guest, 1)[0]);
+    }
 
     private static uint[] DwordBuffer(ulong address, uint records) =>
         [unchecked((uint)address), 0x0004_0000 | (uint)(address >> 32), records, 0x0001_4004];

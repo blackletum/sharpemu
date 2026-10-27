@@ -32,6 +32,15 @@ internal sealed class FakePipelineHost(ICpuMemory memory) : IShaderPipelineHost
 {
     private ulong _nextHandle = 1;
 
+    public int ImageNormalizations { get; private set; }
+
+    public uint[] NormalizeImageDescriptor(IShaderFrontend frontend, ReadOnlySpan<uint> words,
+        ShaderStage stage, ulong shaderHash, string source)
+    {
+        ImageNormalizations++;
+        return frontend.NormalizeImageForResolution(words, stage, shaderHash, source, true);
+    }
+
     public List<(ShaderStage Stage, ulong Hash, ulong ProgramId)> Modules { get; } = new();
 
     public List<IGuestCompiledShader> CompiledShaders { get; } = new();

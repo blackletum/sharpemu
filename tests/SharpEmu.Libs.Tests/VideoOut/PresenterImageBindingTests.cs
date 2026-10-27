@@ -4,7 +4,10 @@
 using System.Collections;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Buffers.Binary;
+using SharpEmu.GnmMode.Shaders;
 using SharpEmu.HLE.Host;
+using SharpEmu.HLE.GpuMemory;
 using SharpEmu.Libs.Gpu;
 using SharpEmu.Libs.Gpu.Buffers;
 using SharpEmu.Libs.Gpu.Images;
@@ -92,6 +95,80 @@ public sealed class PresenterImageBindingTests : IClassFixture<HeadlessVulkanFix
     private readonly HeadlessVulkan? _vulkan;
 
     public PresenterImageBindingTests(HeadlessVulkanFixture fixture) => _vulkan = fixture.Vulkan;
+
+    [Fact]
+    public void GnmPreparedTextureRefreshesTheSameBackingAfterCpuAndGpuWrites()
+    {
+        if (!GatePrerequisites.Ready(_vulkan)) return;
+        using var fatal = new FatalScope();
+        using var presenter = new PresenterUnderTest(_vulkan!);
+        presenter.LoadRenderingCommands();
+        var harness = presenter.Harness;
+        var source = harness.MapBacked(0x4000, ReadWrite);
+        var backing = harness.MapBacked(0x4000, ReadWrite);
+        harness.Write(source, Bytes(Enumerable.Repeat(0x3F800000u, 64).ToArray()));
+        var frontend = new GcnShaderFrontend(harness.Memory, size =>
+        {
+            Assert.Equal(0x4000UL, size);
+            return backing;
+        });
+        uint[] raw = [(uint)(source >> 8), (4u << 20) | (7u << 26), 7u | (7u << 14),
+            (9u << 28) | (13u << 20) | 0xFAC, 7u << 13, 0, 0, 0];
+        var words = presenter.Run(() => frontend.NormalizeImageForResolution(raw, ShaderStage.Pixel, 456, "test-prepared", true));
+        var image = new ImageResource { ResourceClass = PlanImageResourceClass.Sampled, NumericClass = ImageNumericClass.Float,
+            Dimension = ImageDimension.Dim2D, Read = true };
+        var info = new ShaderResourceInfo { Images = [image] };
+        var program = new ShaderProgramInfo
+        {
+            Stage = ShaderStageKind.Pixel,
+            Frontend = frontend,
+            Images = [new ImageResourceInfo(ImageResourceClass.Sampled, false)],
+            Resources = new SpecializedResourceInfo { Info = info },
+            Bindings = BindingLayout.Allocate(info, [], false, false, false),
+        };
+        var stage = new ShaderStageResources(program, new ResourceSnapshot { Images = [words] });
+        CachedImage Bind() => presenter.Run(() =>
+        {
+            presenter.RenderHost.ResetBindings();
+            using var preparation = presenter.RenderHost.BeginPreparation();
+            var bindings = presenter.RenderHost.PrepareBindings(stage);
+            presenter.RenderHost.BindResources(bindings);
+            var textures = (Array)bindings.GetType().GetProperty("Textures")!.GetValue(bindings)!;
+            return (CachedImage)GetFieldValue(textures.GetValue(0)!, "CachedImage");
+        });
+        GuestGpuMemoryHook.Attach(harness.Gpu);
+        try
+        {
+            var first = Bind();
+            presenter.Run(() => presenter.InvokeMethod("FlushBatchedGuestCommands"));
+            harness.Finish();
+            Assert.Equal(0x3F800000u, BinaryPrimitives.ReadUInt32LittleEndian(harness.ReadImageBytes(first)));
+            harness.Write(source, Bytes(Enumerable.Repeat(0x40000000u, 64).ToArray()));
+            typeof(GcnShaderFrontend).Assembly.GetType("SharpEmu.GnmMode.Shaders.GcnSampledImageDetiler")!
+                .GetMethod("AdvanceEpoch", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, null);
+            var updated = Bind();
+            presenter.Run(() => presenter.InvokeMethod("FlushBatchedGuestCommands"));
+            harness.Finish();
+            Assert.Equal(first.Description.Data.Address, updated.Description.Data.Address);
+            Assert.Equal(0x40000000u, BinaryPrimitives.ReadUInt32LittleEndian(harness.ReadImageBytes(updated)));
+            presenter.Run(() =>
+            {
+                _ = harness.Cache.ObtainBuffer(source, 256, isWritten: true);
+                harness.Cache.FillBuffer(source, 256, 0x40400000, isGds: false);
+                Assert.True(harness.Cache.HasGpuDirtyBytes(source, 256));
+            });
+            var second = Bind();
+            presenter.Run(() => presenter.InvokeMethod("FlushBatchedGuestCommands"));
+            harness.Finish();
+            Assert.Equal(first.Description.Data.Address, second.Description.Data.Address);
+            Assert.Equal(0x40400000u, BinaryPrimitives.ReadUInt32LittleEndian(harness.ReadImageBytes(second)));
+        }
+        finally
+        {
+            GuestGpuMemoryHook.Attach(null);
+        }
+        harness.Shutdown();
+    }
 
     [Fact]
     public void SamplerClassesFollowCurrentViewsAndClearPreviousResults()

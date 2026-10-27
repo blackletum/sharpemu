@@ -3,16 +3,19 @@
 
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using SharpEmu.GnmMode.Shaders;
 using SharpEmu.HLE.Diagnostics;
 using SharpEmu.HLE.GpuMemory;
 using SharpEmu.Libs.Gpu.Buffers;
 using SharpEmu.Libs.Gpu.Images;
+using SharpEmu.Libs.Gpu.Rendering;
 using SharpEmu.Libs.Gpu.Scheduling;
 using SharpEmu.Libs.Tests.Gpu.Buffers;
 using SharpEmu.Libs.Tests.Gpu.Images;
 using SharpEmu.Libs.Tests.Gpu.Scheduling;
 using SharpEmu.Libs.Tests.Gpu.Vulkan;
 using SharpEmu.Libs.VideoOut;
+using SharpEmu.ShaderCompiler.Resources;
 using Silk.NET.Vulkan;
 using Xunit;
 using static SharpEmu.Libs.Tests.Gpu.Scheduling.SchedulingTestSupport;
@@ -25,6 +28,25 @@ public sealed class SliceRecordingTests : IClassFixture<HeadlessVulkanFixture>
     private readonly HeadlessVulkan? _vulkan;
 
     public SliceRecordingTests(HeadlessVulkanFixture fixture) => _vulkan = fixture.Vulkan;
+
+    [Fact]
+    public void GnmImagePreparationRefusesARecordingWorkerBeforeTouchingGpuState()
+    {
+        var host = RuntimeHelpers.GetUninitializedObject(PresenterUnderTest.RecordingHostType);
+        SetHostField(host, "_worker", true);
+        var program = new ShaderProgramInfo
+        {
+            Frontend = new GcnShaderFrontend(new FakeCpuMemory(0x1_0000_0000, 0x10000)),
+            Resources = new SpecializedResourceInfo(),
+            Bindings = new BindingLayout(),
+        };
+        var stage = new ShaderStageResources(program, new ResourceSnapshot { Images = [new uint[8]] });
+
+        var exception = Assert.Throws<SerialRequiredException>(() => ((IRenderHost)host).PrepareBindings(stage));
+
+        Assert.Equal("frontend image preparation", exception.Message);
+        Assert.True(exception.Resumable);
+    }
 
     [Fact]
     public void SliceHazards_FirstAccessNeedsNoBarrierAndRepeatedShaderWritesDo()

@@ -4,6 +4,7 @@
 using System.Buffers.Binary;
 using SharpEmu.GnmMode.Shaders;
 using SharpEmu.HLE;
+using SharpEmu.Libs.Gpu.GpuCommands;
 using SharpEmu.Libs.Gpu.Pipelines;
 using SharpEmu.Libs.Gpu.Images;
 using SharpEmu.ShaderCompiler;
@@ -17,6 +18,64 @@ namespace SharpEmu.Libs.Tests.Loader;
 public sealed class GcnShaderTests
 {
     private const ulong Address = 0x100000000;
+
+    [Fact]
+    public void ConcurrentDecodesKeepEachShadersCapturedUserData()
+    {
+        var memory = Binary(0xF0800F00, 0, 0xBF810000);
+        var context = new CpuContext(memory, Generation.Gen4);
+        var frontend = new GcnShaderFrontend();
+        uint[] flatData = [0, 0, 0, 9u << 28, 0, 0, 0, 0];
+        uint[] volumeData = [0, 0, 0, 10u << 28, 0, 0, 0, 0];
+        var flat = frontend.ReadShader(context, Address, "pixel", flatData);
+        var volume = frontend.ReadShader(context, Address, "pixel", volumeData);
+        flatData[3] = 10u << 28;
+        volumeData[3] = 9u << 28;
+
+        Parallel.For(0, 128, index =>
+        {
+            var shader = index % 2 == 0 ? flat : volume;
+            Assert.True(frontend.TryDecode(context, shader, out var program, out var error), error);
+            var sample = Assert.Single(program.Instructions, instruction => instruction.Opcode == "ImageSample");
+            Assert.Equal(index % 2 == 0 ? 1u : 2u, Assert.IsType<Gen5ImageControl>(sample.Control).Dimension);
+        });
+    }
+
+    [Fact]
+    public void ParallelImageResolutionDefersTexelReadsAndWritesUntilBinding()
+    {
+        const ulong source = 0x100000, scratch = 0x200000;
+        var memory = new TileImageMemory(source, 0x4000, scratch, 0x10000);
+        var allocations = 0;
+        var frontend = new GcnShaderFrontend(memory, _ =>
+        {
+            Interlocked.Increment(ref allocations);
+            return scratch;
+        });
+        uint[] words = [(uint)(source >> 8), (4u << 20) | (7u << 26), 7u | (7u << 14),
+            (9u << 28) | (13u << 20) | 0xFAC, 7u << 13, 0, 0, 0];
+        Assert.Throws<SerialResolveRequiredException>(() =>
+            frontend.NormalizeImageForResolution(words, ShaderStage.Pixel, 123, "test-cold", false));
+        Assert.Equal(0, allocations);
+        Assert.Equal(0, memory.SourceReads);
+        Assert.Equal(0, memory.Writes);
+        var reserved = frontend.NormalizeImageForResolution(words, ShaderStage.Pixel, 123, "test-reserve", true);
+        Assert.Equal(1, allocations);
+        var reads = memory.SourceReads;
+
+        Parallel.For(0, 128, _ =>
+            Assert.Equal(reserved, frontend.NormalizeImageForResolution(words, ShaderStage.Pixel, 123, "test-parallel", false)));
+
+        Assert.Equal(reads, memory.SourceReads);
+        Assert.Equal(0, memory.Writes);
+        Assert.Equal(1, allocations);
+        BinaryPrimitives.WriteUInt32LittleEndian(memory.Source, 0x12345678);
+        Assert.True(frontend.PrepareTexture(reserved));
+        Assert.Equal(0x12345678u, BinaryPrimitives.ReadUInt32LittleEndian(memory.Scratch));
+        Assert.True(memory.SourceReads > reads);
+        Assert.Equal(1, memory.Writes);
+        Assert.Equal(scratch, new TextureDescriptorWords(reserved).BaseAddress);
+    }
 
     [Fact]
     public void ReadsTheRealOrbMetadataAndNotAnAgcHeader()
@@ -336,7 +395,8 @@ public sealed class GcnShaderTests
         Assert.Equal(8u, first.ContinuationSizeBytes);
         Assert.Equal(Address + 0x180, second.ContinuationAddress);
         Assert.Equal(12u, second.ContinuationSizeBytes);
-        Assert.Equal(first, again);
+        Assert.Equal(first.FrontendUserData.ToArray(), again.FrontendUserData.ToArray());
+        Assert.Equal(first with { FrontendUserData = default }, again with { FrontendUserData = default });
         Assert.True(frontend.TryDecode(new CpuContext(memory, Generation.Gen4), second, out var linked, out var error), error);
         Assert.Contains(linked.Instructions, i => i.Opcode == "VMovB32" && i.Destinations.Contains(Gen5Operand.Vector(8)));
         var hash = ShaderIdentity.ComputeContent(memory, second.CodeRanges, "vertex");
@@ -569,12 +629,21 @@ public sealed class GcnShaderTests
     {
         public byte[] Source { get; } = new byte[sourceLength];
         public byte[] Scratch { get; } = new byte[scratchLength];
+        public int SourceReads;
+        public int Writes;
 
-        public bool TryRead(ulong address, Span<byte> destination) =>
-            Copy(address, destination, Source, sourceAddress) || Copy(address, destination, Scratch, scratchAddress);
+        public bool TryRead(ulong address, Span<byte> destination)
+        {
+            if (address >= sourceAddress && address < sourceAddress + (ulong)sourceLength)
+                Interlocked.Increment(ref SourceReads);
+            return Copy(address, destination, Source, sourceAddress) || Copy(address, destination, Scratch, scratchAddress);
+        }
 
-        public bool TryWrite(ulong address, ReadOnlySpan<byte> data) =>
-            Write(address, data, Source, sourceAddress) || Write(address, data, Scratch, scratchAddress);
+        public bool TryWrite(ulong address, ReadOnlySpan<byte> data)
+        {
+            Interlocked.Increment(ref Writes);
+            return Write(address, data, Source, sourceAddress) || Write(address, data, Scratch, scratchAddress);
+        }
 
         private static bool Copy(ulong address, Span<byte> destination, byte[] region, ulong start)
         {

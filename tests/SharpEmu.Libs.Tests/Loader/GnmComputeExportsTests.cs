@@ -224,6 +224,26 @@ public sealed class GnmComputeExportsTests
         Assert.Equal(0x00408080u, gcn[0]);
     }
 
+    [Fact]
+    public void LegacyColorExtentWritesInvalidateCachedTargetsAndPreserveSnapshots()
+    {
+        var context = Context();
+        var id = Map(context);
+        Write(context, Ring, PacketHeader.Make(17, PacketOpcode.SetContextRegister), 0x318,
+            0x00400000, 239, 32639, 0, 10u << 2, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        Assert.Equal(0, Ding(context, id, 17));
+        var banks = AgcExports.GetHeadlessCommandStreamForTests(context.Memory).Queue.GetInterpreter(1).TypedRegisters;
+        var snapshot = banks.Snapshot();
+        var stamp = banks.Stamp(RegisterStamp.ColorTargets);
+
+        Write(context, Ring + 17 * 4, PacketHeader.Make(3, PacketOpcode.SetContextRegister), 0x31A, 16319);
+        Assert.Equal(0, Ding(context, id, 20));
+
+        Assert.True(banks.Stamp(RegisterStamp.ColorTargets) > stamp);
+        Assert.Equal(544u, banks.Context.ColorTargets[0].Height + 1);
+        Assert.Equal(1088u, snapshot.Context.ColorTargets[0].Height + 1);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
