@@ -498,13 +498,13 @@ internal static unsafe partial class VulkanVideoPresenter
             for (var index = 0; index < images.Length; index++)
             {
                 memo.Textures[index].CopyBindingFrom(images[index]);
+                memo.TextureRanges[index] = _imageCache.RememberedRange(images[index].ImageIdentifier, images[index].Request);
             }
 
             var samplers = prepared.Descriptors.Samplers;
             if (memo.SamplerHandles.Length != samplers.Length)
             {
                 memo.SamplerHandles = new Sampler[samplers.Length];
-                memo.TextureRanges[index] = _imageCache.RememberedRange(images[index].ImageIdentifier, images[index].Request);
             }
 
             memo.LookupGeneration = _imageCache.LookupGeneration;
