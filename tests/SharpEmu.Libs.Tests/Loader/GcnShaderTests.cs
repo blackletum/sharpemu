@@ -3,6 +3,7 @@
 
 using System.Buffers.Binary;
 using SharpEmu.GnmMode.Shaders;
+using SharpEmu.GnmMode.Libraries.Gnm;
 using SharpEmu.HLE;
 using SharpEmu.Libs.Gpu.GpuCommands;
 using SharpEmu.Libs.Gpu.Pipelines;
@@ -427,6 +428,7 @@ public sealed class GcnShaderTests
 
         // The source descriptor stays unchanged; a changed texel needs a new snapshot.
         BinaryPrimitives.WriteUInt32LittleEndian(guest.Source.AsSpan(16 * 4), 0x12345678);
+        Assert.Equal(0, GnmDriverExports.SubmitDone(new CpuContext(guest, Generation.Gen4)));
         var second = normalizer(original, ShaderStage.Pixel, 0xB100DB, "test-tile13");
         Assert.NotEqual(first, second);
         Assert.Equal(2, allocations);
@@ -468,12 +470,12 @@ public sealed class GcnShaderTests
     }
 
     [Fact]
-    public void GcnTile13UnsupportedVolumeRemainsUnbound()
+    public void GcnTile13MipmappedVolumeRemainsUnbound()
     {
         var guest = new TileImageMemory(0x100000, 0x10000, 0x200000, 0x10000);
         var frontend = new GcnShaderFrontend(guest, _ => throw new InvalidOperationException("Unexpected detile allocation"));
         uint[] descriptor = [0x1000, (4u << 20) | (7u << 26), 1024,
-            (10u << 28) | (13u << 20) | 0xFAC, (1031u << 13), 0, 0, 0];
+            (10u << 28) | (13u << 20) | (1u << 16) | 0xFAC, (1031u << 13), 0, 0, 0];
         Assert.Equal(new uint[8], frontend.NormalizeImageDescriptor(descriptor, ShaderStage.Pixel, 0xBB, "test-3d"));
     }
 
@@ -694,7 +696,7 @@ public sealed class GcnShaderTests
     [InlineData(0xE030812Cu, 0x080108FFu)]
     public void InvalidAddress64BufferModesAndRegisterPairsRemainRejected(uint word, uint extra)
     {
-        var memory = Binary(word, extra, 0xBF810000);
+        var memory = Words(word, extra, 0xBF810000);
         Assert.False(GcnShaderDecoder.TryDecode(memory, Address, 12, out _, out var error));
         Assert.Contains("unsupported-gcn-", error);
     }

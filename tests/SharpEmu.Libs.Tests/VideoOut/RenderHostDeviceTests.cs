@@ -473,7 +473,7 @@ public sealed unsafe partial class RenderHostDeviceTests : IClassFixture<Headles
     }
 
     [Fact]
-    public void PrepareBindings_UnmappedBufferReportsItsDescriptorSource()
+    public void PrepareBindings_UnmappedBufferKeepsItsDescriptorAndBindsNull()
     {
         if (!Ready()) return;
         using var presenter = new PresenterUnderTest(_vulkan!);
@@ -491,15 +491,13 @@ public sealed unsafe partial class RenderHostDeviceTests : IClassFixture<Headles
         presenter.Run(() =>
         {
             using var preparation = presenter.RenderHost.BeginPreparation();
-            var failure = Assert.Throws<SchedulerFatalException>(() =>
-                presenter.RenderHost.PrepareBindings(new ShaderStageResources(program, snapshot, 0x12340000)));
-            Assert.Contains("address=0x0000F00000000600", failure.Message);
-            Assert.Contains("stage=Pixel", failure.Message);
-            Assert.Contains($"hash=0x{program.Hash:X16}", failure.Message);
-            Assert.Contains("shader=0x0000000012340000", failure.Message);
-            Assert.Contains("buffer=0 source=17 pc=0x4C", failure.Message);
-            Assert.Contains("descriptor=[00000600,0000F000,00000020,00000000]", failure.Message);
-            Assert.Contains("user_data=[12345678]", failure.Message);
+            var prepared = presenter.RenderHost.PrepareBindings(new ShaderStageResources(program, snapshot, 0x12340000));
+            var sources = Assert.IsType<(BufferDescriptorWords Descriptor, ResourceSlotIdentifier Buffer, ulong MappedSize)[]>(
+                prepared.GetType().GetProperty("BufferSources")!.GetValue(prepared));
+            var source = Assert.Single(sources);
+            Assert.Equal(BufferDescriptorWords.From(snapshot.Buffers[0]), source.Descriptor);
+            Assert.Equal(default, source.Buffer);
+            Assert.Equal(0UL, source.MappedSize);
         });
         presenter.Harness.Shutdown();
     }

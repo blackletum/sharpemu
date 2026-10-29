@@ -6,11 +6,13 @@ using System.Runtime.InteropServices;
 using SharpEmu.GnmMode.Shaders;
 using SharpEmu.HLE;
 using SharpEmu.Libs.Gpu.Buffers;
+using SharpEmu.Libs.Gpu.Images;
 using SharpEmu.Libs.Tests.Gpu.Images;
 using SharpEmu.ShaderCompiler;
 using SharpEmu.ShaderCompiler.Resources;
 using SharpEmu.ShaderCompiler.Tests.Resources;
 using SharpEmu.ShaderCompiler.Vulkan;
+using Silk.NET.Vulkan;
 using Xunit;
 
 namespace SharpEmu.Libs.Tests.Gpu.Vulkan;
@@ -88,7 +90,8 @@ public sealed class GcnComputeDeviceTests(HeadlessVulkanFixture fixture) : IClas
         userData[18] = 64;
         userData[19] = (11u << 15) | (4u << 12) | 0xFAC;
         var plan = ShaderResourcePlan.Extract(program, ShaderStage.Compute, 0xBB124, 0, 20,
-            normalizeBufferDescriptor: GcnBufferDescriptor.Normalize);
+            normalizeBufferDescriptor: GcnBufferDescriptor.Normalize,
+            normalizeImageDescriptor: GcnImageDescriptor.Normalize);
         var snapshot = new ResourceSnapshot();
         var specialization = new ResourceSpecialization();
         Assert.True(ResourceMaterializer.Materialize(plan, new ResourceRuntimeInputs { UserData = userData },
@@ -100,6 +103,7 @@ public sealed class GcnComputeDeviceTests(HeadlessVulkanFixture fixture) : IClas
         Assert.True(Gen5SpirvTranslator.TryCompileProgram(request, out var shader, out error), error);
         using var harness = new ImageTestHarness(vulkan);
         using var runner = new LayoutComputeRunner(harness, request, shader.Spirv);
+        var inactiveImages = BindInactiveNativeImages(harness, request, snapshot);
         var physicalHeight = pow2 ? System.Numerics.BitOperations.RoundUpToPowerOf2(height) : height;
         physicalHeight = (physicalHeight + 7) & ~7u;
         var sourceBytes = new byte[8 * physicalHeight * layers * 8];
@@ -110,7 +114,7 @@ public sealed class GcnComputeDeviceTests(HeadlessVulkanFixture fixture) : IClas
         var source = runner.CreateBuffer(sourceBytes);
         var output = runner.CreateBuffer(512);
         harness.Run(() => runner.Dispatch(userData,
-            new Dictionary<DescriptorBindingKind, GpuBuffer[]> { [DescriptorBindingKind.Buffers] = [source, output] }, 1));
+            new Dictionary<DescriptorBindingKind, GpuBuffer[]> { [DescriptorBindingKind.Buffers] = [source, output] }, 1, boundImages: inactiveImages));
         Assert.Equal(MemoryMarshal.AsBytes<float>(expected).ToArray(), runner.ReadBack(output, 0, 8));
         harness.AssertNoValidationMessages();
     }
@@ -139,7 +143,8 @@ public sealed class GcnComputeDeviceTests(HeadlessVulkanFixture fixture) : IClas
             0x2000, 12u << 16, 1, (13u << 15) | (4u << 12) | 0x1AC,
             0x3000, 4u << 16, destinationWord + 64, (4u << 15) | (4u << 12) | 4];
         var plan = ShaderResourcePlan.Extract(program, ShaderStage.Compute, 0xBB123, 0, 16,
-            normalizeBufferDescriptor: GcnBufferDescriptor.Normalize);
+            normalizeBufferDescriptor: GcnBufferDescriptor.Normalize,
+            normalizeImageDescriptor: GcnImageDescriptor.Normalize);
         var snapshot = new ResourceSnapshot();
         var specialization = new ResourceSpecialization();
         Assert.True(ResourceMaterializer.Materialize(plan, new ResourceRuntimeInputs { UserData = userData },
@@ -239,7 +244,8 @@ public sealed class GcnComputeDeviceTests(HeadlessVulkanFixture fixture) : IClas
         uint[] userData = [0, 0, 0, 0, 0x1000, 16u << 16, 1, (14u << 15) | (7u << 12) | 0xFAC,
             0x2000, 16u << 16, 64, (14u << 15) | (4u << 12) | 0xFAC];
         var plan = ShaderResourcePlan.Extract(program, ShaderStage.Compute, 1234, 0, 12,
-            normalizeBufferDescriptor: GcnBufferDescriptor.Normalize);
+            normalizeBufferDescriptor: GcnBufferDescriptor.Normalize,
+            normalizeImageDescriptor: GcnImageDescriptor.Normalize);
         var snapshot = new ResourceSnapshot();
         var specialization = new ResourceSpecialization();
         Assert.True(ResourceMaterializer.Materialize(plan, new ResourceRuntimeInputs { UserData = userData },
@@ -303,7 +309,8 @@ public sealed class GcnComputeDeviceTests(HeadlessVulkanFixture fixture) : IClas
         userData[11] = (9u << 28) | (tile << 20) | 0xFAC;
         userData[12] = (pitch - 1) << 13;
         var plan = ShaderResourcePlan.Extract(program, ShaderStage.Compute, 5678, 0, 16,
-            normalizeBufferDescriptor: GcnBufferDescriptor.Normalize);
+            normalizeBufferDescriptor: GcnBufferDescriptor.Normalize,
+            normalizeImageDescriptor: GcnImageDescriptor.Normalize);
         var snapshot = new ResourceSnapshot();
         var specialization = new ResourceSpecialization();
         Assert.True(ResourceMaterializer.Materialize(plan, new ResourceRuntimeInputs { UserData = userData },
@@ -319,12 +326,13 @@ public sealed class GcnComputeDeviceTests(HeadlessVulkanFixture fixture) : IClas
         Assert.True(Gen5SpirvTranslator.TryCompileProgram(request, out var shader, out error), error);
         using var harness = new ImageTestHarness(vulkan);
         using var runner = new LayoutComputeRunner(harness, request, shader.Spirv);
+        var inactiveImages = BindInactiveNativeImages(harness, request, snapshot);
         var output = runner.CreateBuffer(size);
         var expected = new byte[size];
         Array.Fill(expected, (byte)0xCD);
         output.Write(0, expected);
         harness.Run(() => runner.Dispatch(userData,
-            new Dictionary<DescriptorBindingKind, GpuBuffer[]> { [DescriptorBindingKind.Buffers] = [output] }, 1));
+            new Dictionary<DescriptorBindingKind, GpuBuffer[]> { [DescriptorBindingKind.Buffers] = [output] }, 1, boundImages: inactiveImages));
         for (var y = 0u; y < height; y++)
             for (var x = 0u; x < width; x++)
             {
@@ -371,7 +379,8 @@ public sealed class GcnComputeDeviceTests(HeadlessVulkanFixture fixture) : IClas
         userData[11] = (10u << 28) | (19u << 20) | 0xFAC;
         userData[12] = ((pitch - 1) << 13) | (depth - 1);
         var plan = ShaderResourcePlan.Extract(program, ShaderStage.Compute, 5679, 0, 16,
-            normalizeBufferDescriptor: GcnBufferDescriptor.Normalize);
+            normalizeBufferDescriptor: GcnBufferDescriptor.Normalize,
+            normalizeImageDescriptor: GcnImageDescriptor.Normalize);
         var snapshot = new ResourceSnapshot();
         var specialization = new ResourceSpecialization();
         Assert.True(ResourceMaterializer.Materialize(plan, new ResourceRuntimeInputs { UserData = userData },
@@ -388,12 +397,13 @@ public sealed class GcnComputeDeviceTests(HeadlessVulkanFixture fixture) : IClas
         Assert.True(Gen5SpirvTranslator.TryCompileProgram(request, out var shader, out error), error);
         using var harness = new ImageTestHarness(vulkan);
         using var runner = new LayoutComputeRunner(harness, request, shader.Spirv);
+        var inactiveImages = BindInactiveNativeImages(harness, request, snapshot);
         var output = runner.CreateBuffer(size);
         var expected = new byte[size];
         Array.Fill(expected, (byte)0xCD);
         output.Write(0, expected);
         harness.Run(() => runner.Dispatch(userData,
-            new Dictionary<DescriptorBindingKind, GpuBuffer[]> { [DescriptorBindingKind.Buffers] = [output] }, 1));
+            new Dictionary<DescriptorBindingKind, GpuBuffer[]> { [DescriptorBindingKind.Buffers] = [output] }, 1, boundImages: inactiveImages));
         for (var z = 0u; z < depth; z++)
             for (var y = 0u; y < height; y++)
                 for (var x = 0u; x < width; x++)
@@ -436,7 +446,8 @@ public sealed class GcnComputeDeviceTests(HeadlessVulkanFixture fixture) : IClas
         userData[12] = ((pitch - 1) << 13) | (type == 11 ? 0 : physicalLayers - 1);
         userData[13] = baseArray | (lastArray << 13);
         var plan = ShaderResourcePlan.Extract(program, ShaderStage.Compute, 5680, 0, 16,
-            normalizeBufferDescriptor: GcnBufferDescriptor.Normalize);
+            normalizeBufferDescriptor: GcnBufferDescriptor.Normalize,
+            normalizeImageDescriptor: GcnImageDescriptor.Normalize);
         var snapshot = new ResourceSnapshot();
         var specialization = new ResourceSpecialization();
         Assert.True(ResourceMaterializer.Materialize(plan, new ResourceRuntimeInputs { UserData = userData },
@@ -453,12 +464,13 @@ public sealed class GcnComputeDeviceTests(HeadlessVulkanFixture fixture) : IClas
         Assert.True(Gen5SpirvTranslator.TryCompileProgram(request, out var shader, out error), error);
         using var harness = new ImageTestHarness(vulkan);
         using var runner = new LayoutComputeRunner(harness, request, shader.Spirv);
+        var inactiveImages = BindInactiveNativeImages(harness, request, snapshot);
         var output = runner.CreateBuffer(size);
         var expected = new byte[size];
         Array.Fill(expected, (byte)0xCD);
         output.Write(0, expected);
         harness.Run(() => runner.Dispatch(userData,
-            new Dictionary<DescriptorBindingKind, GpuBuffer[]> { [DescriptorBindingKind.Buffers] = [output] }, 1));
+            new Dictionary<DescriptorBindingKind, GpuBuffer[]> { [DescriptorBindingKind.Buffers] = [output] }, 1, boundImages: inactiveImages));
         for (var layer = baseArray; layer <= lastArray; layer++)
             for (var y = 0u; y < height; y++)
                 for (var x = 0u; x < width; x++)
@@ -470,6 +482,52 @@ public sealed class GcnComputeDeviceTests(HeadlessVulkanFixture fixture) : IClas
                 }
         Assert.Equal(expected, runner.ReadBack(output, 0, size));
         harness.AssertNoValidationMessages();
+    }
+
+    private static Dictionary<DescriptorBindingKind, DescriptorImageInfo[]> BindInactiveNativeImages(
+        ImageTestHarness harness, ShaderCompileRequest request, ResourceSnapshot snapshot)
+    {
+        var bindings = new Dictionary<DescriptorBindingKind, DescriptorImageInfo[]>();
+        foreach (var descriptor in request.Bindings.Descriptors)
+        {
+            var resourceClass = ImageDescriptorBinding.ResourceClass(descriptor.Kind);
+            if (resourceClass == ImageResourceClass.None)
+                continue;
+            bindings[descriptor.Kind] = descriptor.Resources.Select(resource =>
+            {
+                Assert.All(snapshot.Images[(int)resource], word => Assert.Equal(0u, word));
+                var info = request.Resources.Info.Images[(int)resource];
+                var (format, guestFormat) = info.NumericClass switch
+                {
+                    ImageNumericClass.Float => (Format.R32Sfloat, GuestPixelFormat.Bits32Float),
+                    ImageNumericClass.Uint => (Format.R32Uint, GuestPixelFormat.Bits32UInt),
+                    ImageNumericClass.Sint => (Format.R32Sint, GuestPixelFormat.Bits32SInt),
+                    _ => throw new InvalidOperationException($"Unexpected inactive image class: {info.NumericClass}"),
+                };
+                var viewType = info.Dimension switch
+                {
+                    ImageDimension.Dim2D => ImageViewType.Type2D,
+                    ImageDimension.Dim2DArray => ImageViewType.Type2DArray,
+                    ImageDimension.Dim3D => ImageViewType.Type3D,
+                    _ => throw new InvalidOperationException($"Unexpected inactive image dimension: {info.Dimension}"),
+                };
+                var description = ImageCacheTestSupport.LinearRequest(0x100000, 4, format, guestFormat,
+                    viewType == ImageViewType.Type3D ? GuestImageType.Color3D : GuestImageType.Color2D,
+                    new Extent3D(1, 1, 1), 1, 4, 1).Description;
+                var image = harness.CreateImage(description);
+                harness.UploadImage(image, new byte[4], ImageTestHarness.WholeImageCopies(description, 0));
+                return new DescriptorImageInfo
+                {
+                    ImageView = image.GetOrCreateView(ImageViewDescription.Default with
+                    {
+                        Format = format, Type = viewType,
+                        Usage = resourceClass == ImageResourceClass.Storage ? ImageUsageFlags.StorageBit : ImageUsageFlags.SampledBit,
+                    }),
+                    ImageLayout = ImageLayout.General,
+                };
+            }).ToArray();
+        }
+        return bindings;
     }
 
     private sealed class CodeMemory(uint[] words) : ICpuMemory

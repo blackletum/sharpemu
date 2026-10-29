@@ -51,6 +51,7 @@ public sealed class GnmLoadExecRuntimeTests
                 expectedRoot = directory;
             }
             var dispatcher = new RecordingDispatcher();
+            KernelMemoryCompatExports.RegisterGuestPathMount("/app0", expectedRoot);
             string[] arguments = ["first argument", "", "four", "five"];
             using var runtime = new SharpEmuRuntime(new GnmSelfLoader(), new VirtualMemory(), dispatcher,
                 new ModuleManager(), cpuExecutionOptions: new CpuExecutionOptions { ProcessArguments = arguments },
@@ -71,6 +72,7 @@ public sealed class GnmLoadExecRuntimeTests
         finally
         {
             App0Archive.Unmount();
+            KernelMemoryCompatExports.UnregisterGuestPathMount("/app0");
             Environment.SetEnvironmentVariable("SHARPEMU_APP0_DIR", previous);
             Directory.Delete(directory, recursive: true);
             if (cache is not null && Directory.Exists(cache))

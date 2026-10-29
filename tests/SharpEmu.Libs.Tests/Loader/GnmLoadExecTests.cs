@@ -4,6 +4,7 @@
 using SharpEmu.GnmMode;
 using SharpEmu.HLE;
 using SharpEmu.HLE.FileSystem;
+using SharpEmu.Libs.Kernel;
 using SharpEmu.Libs.Tests.FileSystem;
 using SharpEmu.Libs.Tests.Kernel;
 using Xunit;
@@ -20,6 +21,7 @@ public sealed class GnmLoadExecTests : IDisposable
     public GnmLoadExecTests()
     {
         Environment.SetEnvironmentVariable("SHARPEMU_APP0_DIR", _directory);
+        KernelMemoryCompatExports.RegisterGuestPathMount("/app0", _directory);
         HostSessionControl.ResetShutdownRequest();
         File.WriteAllBytes(Path.Combine(_directory, "eboot.bin"), GnmLoaderTests.CreateImage(false));
         File.WriteAllBytes(Path.Combine(_directory, "big2-ps4_Shipping.elf"), GnmLoaderTests.CreateImage(false));
@@ -28,6 +30,7 @@ public sealed class GnmLoadExecTests : IDisposable
     public void Dispose()
     {
         App0Archive.Unmount();
+        KernelMemoryCompatExports.UnregisterGuestPathMount("/app0");
         HostSessionControl.ResetShutdownRequest();
         Environment.SetEnvironmentVariable("SHARPEMU_APP0_DIR", _previousRoot);
         Directory.Delete(_directory, recursive: true);

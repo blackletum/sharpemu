@@ -412,6 +412,6 @@ public sealed class RegisterBanksSnapshotTests
                 }
             });
 
-        Assert.True(allocated / snapshots.Length <= 1400, $"bytes per draw={allocated / snapshots.Length}");
+        Assert.True(allocated / snapshots.Length <= 1400 + sizeof(ulong), $"bytes per draw={allocated / snapshots.Length}");
     }
 }

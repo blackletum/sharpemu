@@ -721,25 +721,27 @@ public sealed class GnmComputeExportsTests
     {
         var context = Context();
         var id = Map(context, 512);
-        Write(context, Ring, PacketHeader.Make(3, PacketOpcode.SetContextRegister), ContextRegisterOffset.CbTargetMask, 0xF,
+        Write(context, Ring,
+            PacketHeader.Make(3, PacketOpcode.SetContextRegister), ContextRegisterOffset.CbColor0Info, 10u << 2,
+            PacketHeader.Make(3, PacketOpcode.SetContextRegister), ContextRegisterOffset.CbTargetMask, 0xF,
             PacketHeader.Make(4, PacketOpcode.SetShaderRegister), ShaderRegisterOffset.ComputePgmRsrc1, 0x1234, 0x5678,
             PacketHeader.Make(2, PacketOpcode.NumInstances), 4);
-        Assert.Equal(0, Ding(context, id, 9));
+        Assert.Equal(0, Ding(context, id, 12));
         var interpreter = AgcExports.GetHeadlessCommandStreamForTests(context.Memory).Queue.GetInterpreter(1);
         var shader = interpreter.TypedRegisters.Shader;
         Assert.Equal(0xFu, interpreter.TypedRegisters.Context.RenderTargetMask);
         Assert.Equal(4u, interpreter.InstanceCount);
-        context[CpuRegister.Rdi] = Ring + 9 * sizeof(uint);
+        context[CpuRegister.Rdi] = Ring + 12 * sizeof(uint);
         context[CpuRegister.Rsi] = 256;
         Assert.Equal(256, GnmDriverExports.DrawInitToDefaultContextState400(context));
         Assert.Equal(256UL, context[CpuRegister.Rax]);
-        Assert.Equal(0, Ding(context, id, 265));
+        Assert.Equal(0, Ding(context, id, 268));
         Assert.Equal(0u, interpreter.TypedRegisters.Context.RenderTargetMask);
         Assert.Equal(1u, interpreter.InstanceCount);
         Assert.Same(shader, interpreter.TypedRegisters.Shader);
         Assert.Equal(0x1234u, interpreter.Registers.Shader[ShaderRegisterOffset.ComputePgmRsrc1]);
         Assert.True(context.TryReadUInt32(ReadPointer, out var read));
-        Assert.Equal(265u, read);
+        Assert.Equal(268u, read);
     }
 
     [Theory]
@@ -895,18 +897,20 @@ public sealed class GnmComputeExportsTests
     {
         var context = Context();
         var id = Map(context);
-        Write(context, Ring, PacketHeader.Make(3, PacketOpcode.SetContextRegister), ContextRegisterOffset.CbTargetMask, 0xF);
-        Assert.Equal(0, Ding(context, id, 3));
+        Write(context, Ring,
+            PacketHeader.Make(3, PacketOpcode.SetContextRegister), ContextRegisterOffset.CbColor0Info, 10u << 2,
+            PacketHeader.Make(3, PacketOpcode.SetContextRegister), ContextRegisterOffset.CbTargetMask, 0xF);
+        Assert.Equal(0, Ding(context, id, 6));
         var interpreter = AgcExports.GetHeadlessCommandStreamForTests(context.Memory).Queue.GetInterpreter(1);
         var previous = interpreter.TypedRegisters.Context;
         Write(context, Base + 0x800, 0x1234, 0, 0xC0000, 4, 0, 4, 0, 0, 0, 0, 0, 0xF);
-        context[CpuRegister.Rdi] = Ring + 12;
+        context[CpuRegister.Rdi] = Ring + 24;
         context[CpuRegister.Rsi] = vertex ? 29UL : 40UL;
         context[CpuRegister.Rdx] = Base + 0x800;
         context[CpuRegister.Rcx] = 0xC0;
         Assert.Equal(0, vertex ? GnmDriverExports.UpdateVsShader(context)
             : legacy ? GnmDriverExports.UpdatePsShader(context) : GnmDriverExports.UpdatePsShader350(context));
-        Assert.Equal(0, Ding(context, id, vertex ? 32u : 43u));
+        Assert.Equal(0, Ding(context, id, vertex ? 35u : 46u));
         Assert.Same(previous, interpreter.TypedRegisters.Context);
         Assert.Equal(0xFu, interpreter.TypedRegisters.Context.RenderTargetMask);
         Assert.Equal(0x1234u, interpreter.Registers.Shader[vertex ? 0xC8u : ShaderRegisterOffset.SpiShaderPgmLoPs]);
@@ -930,7 +934,7 @@ public sealed class GnmComputeExportsTests
         Assert.Equal(1920u, target.Width + 1);
         Assert.Equal(1088u, target.Height + 1);
         Assert.Equal(1u, target.Dimension);
-        Assert.Equal(GuestTileMode.RenderTarget, target.TileMode);
+        Assert.Equal(GuestTileMode.Linear, target.TileMode);
         var resolved = ImageRequestBuilders.ColorTarget(in target, 15, 0, false);
         Assert.NotNull(resolved);
         Assert.Equal(1920u, resolved.Value.Extent.Width);
@@ -964,7 +968,7 @@ public sealed class GnmComputeExportsTests
         var sampled = frontend.ResolveTexture(converted, shape, 123, 0);
         var color = ImageRequestBuilders.ColorTarget(in target, 15, 0, false)!.Value;
         Assert.Equal(target.BaseAddress, sampled.Request.Description.Data.Address);
-        Assert.Equal(GuestTileMode.RenderTarget, sampled.Request.Description.TileMode);
+        Assert.Equal(color.Request.Description.TileMode, sampled.Request.Description.TileMode);
         Assert.Equal(color.Request.Description.Pitch, sampled.Request.Description.Pitch);
         var colorMip = color.Request.Description.MipLayout[0];
         var textureMip = sampled.Request.Description.MipLayout[0];
@@ -1004,7 +1008,7 @@ public sealed class GnmComputeExportsTests
         Assert.Equal(0u, Assert.Single(snapshot.Buffers)[2]);
         var image = new TextureDescriptorWords(Assert.Single(snapshot.Images));
         Assert.Equal(0x40909000UL, image.BaseAddress);
-        Assert.Equal(GuestTileMode.RenderTarget, image.TileMode);
+        Assert.Equal(GuestTileMode.Linear, image.TileMode);
         Assert.Equal(1920u, image.Width + 1);
         Assert.Equal(1088u, image.Height + 1);
         var resources = ResourceMaterializer.ApplyTo(plan, specialization);
@@ -1088,7 +1092,10 @@ public sealed class GnmComputeExportsTests
             Assert.Equal(1920UL * 1080 * 4, from.Description.Data.Size);
         }
         else
-            Assert.True(from.Description.Data.Size > 2088960UL * 4);
+        {
+            Assert.Equal(GuestTileMode.Linear, from.Description.TileMode);
+            Assert.Equal(2088960UL * 4, from.Description.Data.Size);
+        }
         Assert.Equal(from.Description.Data.Size, to.Description.Data.Size);
         Assert.Equal(from.Description.Extent, to.Description.Extent);
 
@@ -1133,7 +1140,11 @@ public sealed class GnmComputeExportsTests
         Assert.Equal(1, GnmDriverExports.AreSubmitsAllowed(Context()));
     }
 
-    private static CpuContext Context() => new(new FakeCpuMemory(Base, 0x10000), Generation.Gen4);
+    private static CpuContext Context()
+    {
+        GcnShaderFrontend.ResetVertexFetchTargets();
+        return new(new FakeCpuMemory(Base, 0x10000), Generation.Gen4);
+    }
 
     private static void SetMapArguments(CpuContext context, uint dwords)
     {
