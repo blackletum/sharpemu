@@ -260,8 +260,9 @@ public static partial class GcnShaderDecoder
                 >= 0x30 and <= 0x3D and not 0x34 and var atomic => Gen5ShaderTranslator.MubufOpcodeName(atomic),
                 _ => string.Empty,
             };
-            // ADDR64 needs a different address lowering than AGC's indexed buffers.
-            if ((word & (1u << 15)) != 0) name = string.Empty;
+            if ((word & (1u << 15)) != 0 &&
+                ((word & 0x13000u) != 0 || ((word >> 18) & 127) is not (>= 8 and <= 15 or 24 or 26 or >= 28 and <= 31)))
+                name = string.Empty;
         }
         else if (word >> 26 == 0x3A)
         {
@@ -393,6 +394,15 @@ public static partial class GcnShaderDecoder
                     : name.EndsWith("x3", StringComparison.Ordinal) || name.EndsWith("Xyz", StringComparison.Ordinal) ? 3u
                     : name.EndsWith("x4", StringComparison.Ordinal) || name.EndsWith("Xyzw", StringComparison.Ordinal) ? 4u : 1u;
                 sources = [Gen5Operand.Vector(vaddr), Gen5Operand.Scalar(resource), Src(extra >> 24)];
+                if ((word & (1u << 15)) != 0)
+                {
+                    if (vaddr == 255 || vdata + dwords > 256)
+                    {
+                        error = $"unsupported-gcn-addr64-registers pc=0x{pc:X} address=v{vaddr} data=v{vdata} count={dwords}";
+                        return false;
+                    }
+                    sources = [.. sources, Gen5Operand.Vector(vaddr + 1)];
+                }
                 destinations = Enumerable.Range((int)vdata, (int)dwords).Select(index => Gen5Operand.Vector((uint)index)).ToArray();
                 control = new Gen5BufferMemoryControl(dwords, vaddr, vdata, resource, (int)(word & 4095),
                     ((word >> 13) & 1) != 0, ((word >> 12) & 1) != 0, ((word >> 14) & 1) != 0, ((extra >> 22) & 1) != 0);

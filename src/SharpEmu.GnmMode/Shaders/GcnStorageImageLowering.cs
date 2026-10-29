@@ -85,13 +85,14 @@ public static class GcnStorageImageLowering
         program = original;
         error = "";
         var hasImages = original.Instructions.Any(instruction => instruction.Control is GcnStorageImageControl);
+        var hasAddress64 = original.Instructions.Any(IsAddress64);
         static bool IsBuffer(Gen5ShaderInstruction instruction) => instruction.Control is Gen5BufferMemoryControl ||
             instruction.Opcode.StartsWith("SBufferLoad", StringComparison.Ordinal);
         if (!hasImages && !original.Instructions.Any(IsBuffer)) return true;
         var (scalarUsed, vectorUsed) = GcnProgramRewriter.UsedRegisters(original.Instructions, spareHighScalars: true);
         var scalarFree = scalarUsed.Count(used => !used);
         var scalars = AllocateScalars(scalarUsed, hasImages);
-        var vector = GcnProgramRewriter.FindFree(vectorUsed, hasImages ? 16 : 0);
+        var vector = GcnProgramRewriter.FindFree(vectorUsed, hasImages ? 16 : hasAddress64 ? 2 : 0);
         if (scalars is null || vector < 0)
         {
             error = $"gcn-storage-image-lowering-has-no-free-registers scalarFree={scalarFree} vector={vector}";
@@ -114,6 +115,11 @@ public static class GcnStorageImageLowering
                         return true;
                     }
                     Expand(instruction, image, scalars, (uint)vector, Add);
+                    return true;
+                }
+                if (IsAddress64(instruction))
+                {
+                    ExpandAddress64(instruction, (uint)scalar, (uint)vector, Add);
                     return true;
                 }
                 if (!IsBuffer(instruction)) return false;
@@ -153,6 +159,46 @@ public static class GcnStorageImageLowering
                     { AddressOffset = instruction.ProgramOffset });
                 return true;
             }, "gcn-storage-image-lowering-branch-overflow", out program, out error);
+    }
+
+    private static bool IsAddress64(Gen5ShaderInstruction instruction) =>
+        instruction.Control is Gen5BufferMemoryControl && instruction.Encoding == Gen5ShaderEncoding.Mubuf &&
+        (instruction.Words[0] & (1u << 15)) != 0;
+
+    private static void ExpandAddress64(Gen5ShaderInstruction original, uint scalar, uint vector,
+        Action<Gen5ShaderInstruction> add)
+    {
+        var buffer = (Gen5BufferMemoryControl)original.Control!;
+        Gen5Operand S(uint index) => Gen5Operand.Scalar(scalar + index);
+        Gen5Operand V(uint index) => Gen5Operand.Vector(vector + index);
+        static Gen5Operand C(uint value) => new(Gen5OperandKind.LiteralConstant, value);
+        void Emit(Gen5ShaderEncoding encoding, string opcode, Gen5Operand[] sources, Gen5Operand[] destinations,
+            Gen5InstructionControl? control = null) =>
+            add(new Gen5ShaderInstruction(0, encoding, opcode, [0], sources, destinations, control)
+                { AddressOffset = original.ProgramOffset });
+        Emit(Gen5ShaderEncoding.Sop2, "SCselectB32", [C(1), C(0)], [S(4)]);
+        Emit(Gen5ShaderEncoding.Sop2, "SAndB32", [Gen5Operand.Scalar(buffer.ScalarResource + 1), C(255)], [S(1)]);
+        Emit(Gen5ShaderEncoding.Sop2, "SAddU32", [Gen5Operand.Scalar(buffer.ScalarResource), original.Sources[2]], [S(0)]);
+        Emit(Gen5ShaderEncoding.Sop2, "SAddcU32", [S(1), C(0)], [S(1)]);
+        var carry = new Gen5Vop3Control(0, 0, 0, false, 0, scalar + 6);
+        Emit(Gen5ShaderEncoding.Vop3, "VAddCoU32", [S(0), Gen5Operand.Vector(buffer.VectorAddress)], [V(0)], carry);
+        Emit(Gen5ShaderEncoding.Vop3, "VAddCoCiU32", [S(1), Gen5Operand.Vector(buffer.VectorAddress + 1), S(6)], [V(1)], carry);
+        var load = original.Opcode.StartsWith("BufferLoad", StringComparison.Ordinal);
+        Gen5Operand[] sources = [V(0), V(1)];
+        if (!load)
+            sources = [.. sources, .. Enumerable.Range((int)buffer.VectorData, (int)buffer.DwordCount)
+                .Select(index => Gen5Operand.Vector((uint)index))];
+        add(original with
+        {
+            Encoding = Gen5ShaderEncoding.Flat,
+            Opcode = "Global" + original.Opcode["Buffer".Length..],
+            Sources = sources,
+            Destinations = load ? original.Destinations : [],
+            Control = new Gen5GlobalMemoryControl(buffer.DwordCount, vector, buffer.VectorData, buffer.VectorData,
+                125, buffer.OffsetBytes, buffer.Glc, buffer.Slc),
+            AddressOffset = original.ProgramOffset,
+        });
+        Emit(Gen5ShaderEncoding.Sopc, "SCmpEqU32", [S(4), C(1)], []);
     }
 
     private static uint[]? AllocateScalars(bool[] used, bool hasImages)
