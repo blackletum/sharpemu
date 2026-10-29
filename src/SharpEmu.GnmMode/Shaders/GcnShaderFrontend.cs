@@ -58,6 +58,7 @@ public sealed partial class GcnShaderFrontend : IShaderFrontend
     public bool RequiresExplicitBufferLengths => true;
     public bool RequiresOrderedImagePreparation => _imageDetiler is not null;
     public bool SupportsParallelResolution => true;
+    public bool RetainsTargetlessDraws => false;
     public BufferDescriptorNormalizer NormalizeBufferDescriptor => GcnBufferDescriptor.Normalize;
     public Func<long> ImageNormalizationVersion => NormalizationVersion;
     public ImageDescriptorNormalizer NormalizeImageDescriptor => _normalizeImageDescriptor;

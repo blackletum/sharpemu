@@ -183,10 +183,12 @@ public static partial class AgcExports
         private readonly RenderExecutor? _executor;
         private readonly RenderRecorder? _recorder;
         private readonly RecordPool? _pool;
+        private readonly bool _retainsTargetlessDraws;
 
         internal CommandStreamTranslation(ICpuMemory memory, ICommandStreamHost host)
         {
             _host = host;
+            _retainsTargetlessDraws = ShaderFrontendOf(memory)?.RetainsTargetlessDraws ?? true;
             _context = new CpuContext(memory, Generation.Gen5);
             _gpuState = _submittedGpuStates.GetValue(CanonicalMemory(memory), static _ => new SubmittedGpuState());
             if (host.RenderHost is { } renderHost && host is IShaderPipelineHost pipelineHost)
@@ -398,14 +400,17 @@ public static partial class AgcExports
         }
 
         // Keeps the banks the draw was issued under; the flip replays it into the display buffer.
-        internal void RetainTargetlessDraw(RegisterBanks banks, in TargetlessDrawArguments arguments)
+        internal bool TryRetainTargetlessDraw(RegisterBanks banks, in TargetlessDrawArguments arguments)
         {
+            if (!_retainsTargetlessDraws)
+                return false;
             var state = RequireCurrent();
             if (RenderTrace.Enabled)
             {
                 RenderTrace.Write($"TargetlessRetention submit={arguments.SubmitId} replaced={state.RetainedTargetlessDraw is not null} previousSubmit={state.RetainedTargetlessDraw?.Arguments.SubmitId} export=0x{banks.Shader.Vertex.ExportAddress:X16} pixel=0x{banks.Shader.Pixel.Address:X16}");
             }
             state.RetainedTargetlessDraw = new RetainedTargetlessDraw(banks.Clone(), arguments);
+            return true;
         }
 
         public void BeginSubmission(int queueId, ulong submissionId, object? geometrySnapshots, GpuCommandInterpreter interpreter)

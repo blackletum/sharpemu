@@ -19,6 +19,7 @@ public interface IShaderFrontend
     bool RequiresExplicitBufferLengths => false;
     bool RequiresOrderedImagePreparation => false;
     bool SupportsParallelResolution => true;
+    bool RetainsTargetlessDraws => true;
     BufferDescriptorNormalizer? NormalizeBufferDescriptor => null;
     ImageDescriptorNormalizer? NormalizeImageDescriptor => null;
     uint[] NormalizeImageForResolution(ReadOnlySpan<uint> words, ShaderStage stage, ulong shaderHash, string source, bool allowPreparation)

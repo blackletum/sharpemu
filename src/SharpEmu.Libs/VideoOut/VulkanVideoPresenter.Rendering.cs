@@ -1669,8 +1669,7 @@ internal static unsafe partial class VulkanVideoPresenter
         public bool TryRetainTargetlessDraw(RegisterBanks banks, GraphicsPrograms programs, in TargetlessDrawArguments arguments)
         {
             _ = programs;
-            _presenter._translation.RetainTargetlessDraw(banks, in arguments);
-            return true;
+            return _presenter._translation.TryRetainTargetlessDraw(banks, in arguments);
         }
 
         public void MarkGpuWritten(ResourceSlotIdentifier image)
