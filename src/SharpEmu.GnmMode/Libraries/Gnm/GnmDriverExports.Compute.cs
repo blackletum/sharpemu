@@ -64,7 +64,7 @@ public static partial class GnmDriverExports
             if (!context.TryWriteUInt32(readPointer, 0))
                 return context.SetReturn(unchecked((int)0x80D17004));
             mappings.Queues[slot] = new ComputeQueue(pipe, queue, ring, dwords, readPointer,
-                (uint)GpuCommandInterpreter.ComputeQueueBase + (uint)slot);
+                (uint)GpuCommandInterpreter.ComputeQueueBase + pipe * QueuesPerPipe + queue);
             return context.SetReturn(slot + 1);
         }
     }
