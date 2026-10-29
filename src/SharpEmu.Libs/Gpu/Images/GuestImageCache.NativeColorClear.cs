@@ -153,6 +153,13 @@ public sealed unsafe partial class GuestImageCache
         return true;
     }
 
+    private static bool ClearCoversImage(CachedImage image, in ImageRequest request)
+    {
+        ref readonly var description = ref image.Description;
+        return description.Resources.Levels == 1 && description.TransferLayers == 1 && request.View.BaseLevel == 0 &&
+            request.Description.Extent.Width == description.Extent.Width && request.Description.Extent.Height == description.Extent.Height;
+    }
+
     private void RecordColorClear(ResourceSlotIdentifier imageIdentifier, in ImageRequest request,
         in ColorClearOperation operation)
     {
@@ -168,8 +175,12 @@ public sealed unsafe partial class GuestImageCache
         _bufferCache.FillBuffer(address, sliceSize, uint.MaxValue, false);
         using (var held = _lock.Hold())
         {
-            RefreshFromGuest(imageIdentifier, request);
             var image = _slots[imageIdentifier];
+            if (!ClearCoversImage(image, request))
+            {
+                RefreshFromGuest(imageIdentifier, request);
+            }
+
             var clearView = view with
             {
                 BaseLayer = layer, LayerCount = 1, Type = ImageViewType.Type2D,
