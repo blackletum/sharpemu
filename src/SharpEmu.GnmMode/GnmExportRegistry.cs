@@ -18,8 +18,11 @@ namespace SharpEmu.GnmMode;
 
 public static class GnmExportRegistry
 {
-    public static IReadOnlyList<ExportedFunction> CreateExports()
+    public static IReadOnlyList<ExportedFunction> CreateExports(GnmLoadExecSession? session = null)
     {
+        SysAbiFunction loadExec = session is null
+            ? context => context.SetReturn(OrbisGen2Result.ORBIS_GEN2_ERROR_NOT_IMPLEMENTED)
+            : session.LoadExec;
         ExportedFunction[] overrides =
         [
             new("libKernel", "VOx8NGmHXTs", "sceKernelGetCpumode", Generation.Gen4, GnmKernelExports.GetCpuMode),
@@ -30,6 +33,7 @@ public static class GnmExportRegistry
                 UserServiceExports.UserServiceInitialize),
             new("libSceSystemService", "x1UB9bwDSOw", "sceSystemServiceDisableMusicPlayer", Generation.Gen4,
                 SystemServiceExports.SystemServiceDisableMusicPlayer),
+            new("libSceSystemService", "JoBqSQt1yyA", "sceSystemServiceLoadExec", Generation.Gen4, loadExec),
             new("libSceNpMatching2", "10t3e5+JPnU", "sceNpMatching2Initialize", Generation.Gen4,
                 GnmMatching2Exports.Initialize),
             new("libSceNpMatching2", "Mqp3lJ+sjy4", "sceNpMatching2Terminate", Generation.Gen4,
