@@ -18,6 +18,26 @@ namespace SharpEmu.GnmMode.Gpu;
 internal static class GnmCommandPackets
 {
     internal static readonly PacketHandler?[] Handlers = CreateHandlers();
+
+    internal static PacketHandler?[] WithFlipLabels(Action<ulong, uint, bool> capture)
+    {
+        var handlers = (PacketHandler?[])Handlers.Clone();
+        handlers[PacketOpcode.Nop] = Guard(
+            (GpuCommandInterpreter interpreter, in PacketContext packet, ReadOnlySpan<uint> payload) =>
+            {
+                if (packet.CustomCode != PacketCustomCode.Zero || payload.Length == 0 ||
+                    payload[0] is not (0x68750778u or 0x68750781u))
+                    return Nop(interpreter, in packet, payload);
+                var interrupt = payload[0] == 0x68750781u;
+                if (payload.Length < (interrupt ? 6 : 4) ||
+                    interrupt && (payload[4] != 0x04 || payload[5] != 0x38))
+                    throw new InvalidOperationException($"Unsupported GNM flip label at 0x{packet.PacketAddress:X16}: length={packet.Length}.");
+                capture((payload[1] & ~3u) | ((ulong)payload[2] << 32), payload[3], interrupt);
+                return packet.Length - 1;
+            });
+        return handlers;
+    }
+
     private const uint GcnRequestedColorMaskKey = 0x400;
     private const uint ColorBase = 0x318;
     private const uint ColorStride = 15;
@@ -27,7 +47,6 @@ internal static class GnmCommandPackets
     private const uint DepthSetupValues = 8;
     private const ulong DepthHintDistance = 12;
     private const int SampleLocationRegisters = 16;
-    private static readonly ConcurrentDictionary<uint, byte> ReportedUnboundFlipMarkers = new();
     private static readonly ConcurrentDictionary<string, byte> Reported = new();
     private static readonly ConcurrentDictionary<uint, byte> ReportedConsumption = new();
     private static readonly ConditionalWeakTable<GpuCommandInterpreter, TargetExtents> Extents = new();
@@ -297,19 +316,11 @@ internal static class GnmCommandPackets
             }
         }
 
-        // GNM submits flips through sceGnmSubmitAndFlipCommandBuffers. An AGC flip marker
-        // without a preceding set-flip packet has no VideoOut handle and would submit
-        // handle 0 on the render thread, terminating the emulator.
         if (packet.CustomCode == PacketCustomCode.Zero && payload.Length != 0 &&
             (payload[0] & 0xFFFF_F000u) == 0x6875_0000u &&
             (payload[0] & 0xFFFu) is 0x777 or 0x778 or 0x781 &&
             interpreter.PendingFlip.Handle == 0)
-        {
-            var marker = payload[0] & 0xFFFu;
-            if (ReportedUnboundFlipMarkers.TryAdd(marker, 0))
-                Console.Error.WriteLine($"[GNMMODE][WARN] Unbound AGC flip marker 0x{marker:X} at 0x{packet.PacketAddress:X16}; GNM uses sceGnmSubmitAndFlipCommandBuffers. Further occurrences are omitted.");
             return packet.Length - 1;
-        }
 
         var normalized = packet with { Header = packet.Header & ~2u };
         return PacketDispatchTable.Opcodes[PacketOpcode.Nop]!(interpreter, in normalized, payload);

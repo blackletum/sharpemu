@@ -168,16 +168,27 @@ public static partial class GnmDriverExports
 
     public static int SubmitCommandBuffers(CpuContext context) => SubmitGraphics(context, flip: false);
     public static int SubmitAndFlipCommandBuffers(CpuContext context) => SubmitGraphics(context, flip: true);
+    private static readonly Lock GraphicsSubmissionGate = new();
+
     public static int SubmitDone(CpuContext context)
     {
-        var result = AgcExports.SuspendPoint(context);
-        if (result == 0)
-            AgcExports.WaitForAcceptedCommandStreams();
-        GcnSampledImageDetiler.AdvanceEpoch();
-        return result;
+        lock (GraphicsSubmissionGate)
+        {
+            var result = AgcExports.SuspendPoint(context);
+            if (result == 0)
+                AgcExports.WaitForAcceptedCommandStreams();
+            GcnSampledImageDetiler.AdvanceEpoch();
+            return result;
+        }
     }
 
     private static int SubmitGraphics(CpuContext context, bool flip)
+    {
+        lock (GraphicsSubmissionGate)
+            return SubmitGraphicsCore(context, flip);
+    }
+
+    private static int SubmitGraphicsCore(CpuContext context, bool flip)
     {
         var count = (uint)context[CpuRegister.Rdi];
         var addresses = context[CpuRegister.Rsi];
@@ -205,6 +216,18 @@ public static partial class GnmDriverExports
         if (flip && (!context.TryReadUInt32(context[CpuRegister.Rsp] + 8, out bufferIndex) ||
             !context.TryReadUInt32(context[CpuRegister.Rsp] + 16, out mode) ||
             !context.TryReadUInt64(context[CpuRegister.Rsp] + 24, out argument))) return context.SetReturn(-1);
+        if (flip)
+        {
+            if ((int)bufferIndex < -1 || (int)bufferIndex >= 16)
+                return context.SetReturn(unchecked((int)0x8029000A));
+            var videoOut = new CpuContext(context.Memory, context.TargetGeneration);
+            videoOut[CpuRegister.Rdi] = unchecked((ulong)handle);
+            var pending = VideoOutExports.VideoOutIsFlipPending(videoOut);
+            if (pending < 0)
+                return context.SetReturn(pending);
+            if ((int)bufferIndex >= 0 && !VideoOutExports.TryGetDisplayBufferInfo(handle, (int)bufferIndex, out _))
+                return context.SetReturn(unchecked((int)0x8029000A));
+        }
         if (flip && GnmDiagnostics.Log)
         {
             var flipNumber = Interlocked.Increment(ref _gnmDiagnosticFlipCount);
@@ -212,6 +235,9 @@ public static partial class GnmDriverExports
                 Console.Error.WriteLine($"[GNMMODE][TIMING] gnm.submit_and_flip #{flipNumber} " +
                     $"handle={handle} index={bufferIndex} mode={mode} arg=0x{argument:X}.");
         }
+        List<(ulong Address, uint Value, bool Interrupt)>? flipLabels = flip ? [] : null;
+        var handlers = flipLabels is null ? GnmCommandPackets.Handlers
+            : GnmCommandPackets.WithFlipLabels((address, value, interrupt) => flipLabels.Add((address, value, interrupt)));
         foreach (var buffer in buffers)
         {
             uint[] begin = [], end = [];
@@ -235,8 +261,8 @@ public static partial class GnmDriverExports
                 var total = (uint)(begin.Length + words + end.Length);
                 var copy = GnmCommandBufferCopies.Copy(data.AsSpan(0, (int)total));
                 var result = copy != 0
-                    ? AgcExports.SubmitGraphicsCommands(context, copy, total, GnmCommandPackets.Handlers)
-                    : AgcExports.SubmitGraphicsCommands(context, buffer.Address, words, GnmCommandPackets.Handlers);
+                    ? AgcExports.SubmitGraphicsCommands(context, copy, total, handlers)
+                    : AgcExports.SubmitGraphicsCommands(context, buffer.Address, words, handlers);
                 if (result != 0) return result;
             }
             finally
@@ -244,10 +270,25 @@ public static partial class GnmDriverExports
                 ArrayPool<uint>.Shared.Return(data);
             }
         }
-        // Display targets already render into the buffer registered with VideoOut.
-        // Copying the old GNM address over an aligned shadow would overwrite the
-        // GPU-rendered frame with stale guest memory immediately before the flip.
-        return flip ? VideoOutExports.SubmitFlip(context, handle, (int)bufferIndex, (int)mode, (long)argument) : context.SetReturn(0);
+        if (!flip)
+            return context.SetReturn(0);
+        AgcExports.WaitForAcceptedCommandStreams();
+        var labels = new uint[flipLabels!.Count * 5];
+        var cursor = 0;
+        foreach (var label in flipLabels)
+        {
+            labels[cursor++] = PacketHeader.Make(5, PacketOpcode.EventWriteEndOfShader) | 2;
+            labels[cursor++] = 0x62F | (label.Interrupt ? 0x38000u : 0u);
+            labels[cursor++] = (uint)label.Address;
+            labels[cursor++] = (uint)(label.Address >> 32) | 0x40000000u | (label.Interrupt ? 0x02000000u : 0u);
+            labels[cursor++] = label.Value;
+        }
+        var labelAddress = labels.Length == 0 ? 0 : GnmCommandBufferCopies.Copy(labels);
+        if (labels.Length != 0 && labelAddress == 0)
+            return context.SetReturn(-1);
+        var flipResult = VideoOutExports.SubmitFlip(context, handle, (int)bufferIndex, (int)mode, (long)argument);
+        return flipResult != 0 || labels.Length == 0 ? flipResult
+            : AgcExports.SubmitGraphicsCommands(context, labelAddress, (uint)labels.Length, GnmCommandPackets.Handlers);
     }
 
     private static bool TryCopyCommands(CpuContext context, ulong address, uint words, out ulong copy)
