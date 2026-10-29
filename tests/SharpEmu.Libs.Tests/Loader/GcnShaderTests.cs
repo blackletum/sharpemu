@@ -7,6 +7,7 @@ using SharpEmu.HLE;
 using SharpEmu.Libs.Gpu.GpuCommands;
 using SharpEmu.Libs.Gpu.Pipelines;
 using SharpEmu.Libs.Gpu.Images;
+using SharpEmu.Libs.Gpu.Rendering;
 using SharpEmu.ShaderCompiler;
 using SharpEmu.ShaderCompiler.Resources;
 using SharpEmu.ShaderCompiler.Vulkan;
@@ -237,6 +238,68 @@ public sealed class GcnShaderTests
         Assert.Equal(0x0010B001u, descriptor[1]);
     }
 
+    [Theory]
+    [InlineData(0x94800FACu)]
+    [InlineData(0xF4800FACu)]
+    [InlineData(uint.MaxValue)]
+    public void UnboundBufferTypesDoNotBecomeSyntheticImageStores(uint flags)
+    {
+        uint[] descriptor = [0x0236CE39, 0x00A00000, 0x700FC03F, flags];
+        var original = descriptor.ToArray();
+        Assert.Equal(new uint[4], GcnBufferDescriptor.Normalize(descriptor));
+        Assert.Equal(original, descriptor);
+
+        var program = Decode(0xE00C0000, 0x80010400, 0xBF810000);
+        var plan = ShaderResourcePlan.Extract(program, ShaderStage.Compute, 0xD530, 0, 8,
+            normalizeBufferDescriptor: GcnBufferDescriptor.Normalize);
+        uint[] userData = [0, 0, 0, 0, .. descriptor];
+        var snapshot = new ResourceSnapshot();
+        var specialization = new ResourceSpecialization();
+        Assert.True(ResourceMaterializer.Materialize(plan, new ResourceRuntimeInputs { UserData = userData },
+            ref snapshot, ref specialization, out var failure), failure.ToString());
+        Assert.Equal(new uint[4], Assert.Single(snapshot.Buffers));
+        var cache = new ResourceMaterializationCache();
+        bool Resident(ulong address, Span<byte> destination, bool clean) => false;
+        for (var index = 0; index < 2; index++)
+        {
+            Assert.True(cache.Materialize(plan, new ResourceRuntimeInputs { UserData = userData }, Resident,
+                ref snapshot, ref specialization, out failure), failure.ToString());
+            Assert.Equal(new uint[4], Assert.Single(snapshot.Buffers));
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void LoweredImageProjectionsKeepTheirAddressPitchAndFormat(bool store)
+    {
+        var original = Decode(store ? 0xF0200F00u : 0xF0000F00u, 0x00020400, 0xBF810000);
+        Assert.True(GcnStorageImageLowering.TryLower(original, out var program, out var error), error);
+        var plan = ShaderResourcePlan.Extract(program, ShaderStage.Compute, 0xD531, 0, 16,
+            normalizeBufferDescriptor: GcnBufferDescriptor.Normalize,
+            normalizeImageDescriptor: GcnImageDescriptor.Normalize);
+        uint[] userData = [0, 0, 0, 0, 0, 0, 0, 0,
+            0x10, (4u << 20) | (7u << 26), 6u | (4u << 14),
+            (9u << 28) | (8u << 20) | 0xFAC, 15u << 13, 0, 0, 0];
+        var snapshot = new ResourceSnapshot();
+        var specialization = new ResourceSpecialization();
+        Assert.True(ResourceMaterializer.Materialize(plan, new ResourceRuntimeInputs { UserData = userData },
+            ref snapshot, ref specialization, out var failure), failure.ToString());
+        var buffer = BufferDescriptorWords.From(Assert.Single(snapshot.Buffers));
+        Assert.Equal(0x1000UL, buffer.Address);
+        Assert.Equal(16u * 5u * 4u, buffer.RecordCount);
+        Assert.Equal(22u, buffer.Format);
+
+        userData[9] = (44u << 20) | (7u << 26);
+        if (store)
+        {
+            var exception = Assert.Throws<InvalidDataException>(() =>
+                ResourceMaterializer.Materialize(plan, new ResourceRuntimeInputs { UserData = userData },
+                    ref snapshot, ref specialization, out _));
+            Assert.Contains("Unsupported GCN storage-image store", exception.Message);
+        }
+    }
+
     [Fact]
     public void LoweredBufferFetchRetainsTheRuntimeSplitFormatEncoding()
     {
@@ -415,6 +478,55 @@ public sealed class GcnShaderTests
     }
 
     [Theory]
+    [InlineData(16u, 16u, 16u, true, false)]
+    [InlineData(16u, 16u, 16u, true, true)]
+    [InlineData(9u, 11u, 5u, false, false)]
+    [InlineData(9u, 11u, 5u, true, true)]
+    public void GcnThickVolumeLutPreservesMicrotileBitsAndThreeDimensionalSampling(
+        uint width, uint height, uint depth, bool pow2, bool deferred)
+    {
+        const ulong source = 0x100000, scratch = 0x200000;
+        var memory = new TileImageMemory(source, 0x4000, scratch, 0x10000);
+        for (var word = 0u; word < memory.Source.Length / 4; word++)
+            BinaryPrimitives.WriteUInt32LittleEndian(memory.Source.AsSpan((int)word * 4), 0xFF000000u | word);
+        var frontend = new GcnShaderFrontend(memory, _ => scratch);
+        uint[] descriptor = [(uint)(source >> 8), 10u << 20, (width - 1) | ((height - 1) << 14),
+            (10u << 28) | (19u << 20) | (pow2 ? 1u << 25 : 0) | 0xFAC,
+            ((width - 1) << 13) | (depth - 1), 0, 0, 0];
+        var normalized = deferred
+            ? frontend.NormalizeImageForResolution(descriptor, ShaderStage.Pixel, 0xD520, "test-volume-lut", true)
+            : frontend.NormalizeImageDescriptor(descriptor, ShaderStage.Pixel, 0xD520, "test-volume-lut");
+        Assert.True(frontend.PrepareTexture(normalized));
+        var translated = new TextureDescriptorWords(normalized);
+        Assert.Equal(scratch, translated.BaseAddress);
+        Assert.Equal(GuestImageType.Color3D, translated.Type);
+        Assert.Equal(depth - 1, translated.Depth);
+        Assert.Equal(GuestTileMode.Linear, translated.TileMode);
+        var shape = new ShaderImageShape(true, false, false, false, false, TextureNumericClass.Float);
+        var sampled = frontend.ResolveTexture(normalized, shape, 0xD520, 0);
+        var description = sampled.Request.Description;
+        Assert.True(description.IsVolume);
+        Assert.Equal(depth, description.Extent.Depth);
+        Assert.Equal(1u, description.Resources.Layers);
+        Assert.Equal((ulong)description.Pitch * height * depth * 4, description.Data.Size);
+        (uint X, uint Y, uint Z, uint SourceWord)[] points =
+        [
+            (0, 0, 0, 0), (1, 0, 0, 1), (0, 1, 0, 2), (2, 0, 0, 4),
+            (0, 0, 1, 8), (0, 2, 0, 16), (0, 0, 2, 32), (4, 0, 0, 64),
+            (0, 4, 0, 128), (7, 7, 3, 255), (8, 0, 0, 256), (0, 8, 0, 512),
+            (8, 8, 0, 768), (0, 0, 4, 1024), (8, 8, 4, 1792), (15, 15, 15, 4095),
+        ];
+        foreach (var point in points)
+        {
+            if (point.X >= width || point.Y >= height || point.Z >= depth)
+                continue;
+            var offset = (int)(((point.Z * height + point.Y) * description.Pitch + point.X) * 4);
+            Assert.Equal(0xFF000000u | point.SourceWord,
+                BinaryPrimitives.ReadUInt32LittleEndian(memory.Scratch.AsSpan(offset)));
+        }
+    }
+
+    [Theory]
     [InlineData(35u, 0u, GuestPixelFormat.Bc1UNorm, 8)]
     [InlineData(35u, 9u, GuestPixelFormat.Bc1Srgb, 8)]
     [InlineData(36u, 0u, GuestPixelFormat.Bc2UNorm, 16)]
@@ -458,6 +570,56 @@ public sealed class GcnShaderTests
         }
     }
 
+    [Theory]
+    [InlineData(11u, false, 5u)]
+    [InlineData(11u, true, 5u)]
+    [InlineData(11u, true, 35u)]
+    [InlineData(13u, false, 2u)]
+    [InlineData(13u, true, 2u)]
+    public void GcnLayeredMipmapsConvertMipOrderedMicrotilesIntoLinearSliceChains(uint type, bool pow2, uint lastArray)
+    {
+        const uint width = 32, levels = 3, blockBytes = 16;
+        const ulong source = 0x500000, scratch = 0x600000;
+        var layers = type == 11 ? 6u : 3u;
+        var sourceLayers = pow2 ? System.Numerics.BitOperations.RoundUpToPowerOf2(layers) : layers;
+        var memory = new TileImageMemory(source, (int)(levels * sourceLayers * 1024), scratch, 0x10000);
+        int[] spread = [0, 1, 4, 5, 16, 17, 20, 21];
+        for (var level = 0u; level < levels; level++)
+        for (var layer = 0u; layer < layers; layer++)
+        for (var y = 0; y < 8 >> (int)level; y++)
+        for (var x = 0; x < 8 >> (int)level; x++)
+        {
+            var offset = (int)((level * sourceLayers + layer) * 1024) + (spread[x] + 2 * spread[y]) * (int)blockBytes;
+            memory.Source.AsSpan(offset, (int)blockBytes).Fill((byte)(1 + layer * 32 + level * 8 + x + y));
+        }
+        var frontend = new GcnShaderFrontend(memory, _ => scratch);
+        uint[] descriptor = [(uint)(source >> 8), 40u << 20, (width - 1) | ((width - 1) << 14),
+            (type << 28) | (13u << 20) | (pow2 ? 1u << 25 : 0) | ((levels - 1) << 16) | (1u << 12) | 0xFAC,
+            ((width - 1) << 13) | (type == 11 ? 0 : layers - 1), lastArray << 13, 0, 0];
+        var normalized = frontend.NormalizeImageDescriptor(descriptor, ShaderStage.Pixel, 0xBC600, "test-layered-mips");
+        var translated = new TextureDescriptorWords(normalized);
+        Assert.Equal(scratch, translated.BaseAddress);
+        Assert.Equal(GuestPixelFormat.Bc6UFloat, translated.Format);
+        Assert.Equal(levels - 1, translated.MaxMip);
+        Assert.Equal(1u, translated.BaseLevel);
+        Assert.Equal(layers - 1, translated.Depth);
+        var shape = new ShaderImageShape(false, true, type == 11, false, false, TextureNumericClass.Float);
+        var sampled = frontend.ResolveTexture(normalized, shape, 0xBC600, 0);
+        Assert.Equal(layers, sampled.Request.Description.Resources.Layers);
+        Assert.Equal(levels, sampled.Request.Description.Resources.Levels);
+        var sliceStride = sampled.Request.Description.Data.Size / layers;
+        for (var level = 0u; level < levels; level++)
+        for (var layer = 0u; layer < layers; layer++)
+        for (var y = 0u; y < 8 >> (int)level; y++)
+        for (var x = 0u; x < 8 >> (int)level; x++)
+        {
+            var mip = sampled.Request.Description.MipLayout[(int)level];
+            var offset = layer * sliceStride + mip.Offset + (y * (mip.Pitch / 4) + x) * blockBytes;
+            Assert.All(memory.Scratch.AsSpan((int)offset, (int)blockBytes).ToArray(),
+                value => Assert.Equal((byte)(1 + layer * 32 + level * 8 + x + y), value));
+        }
+    }
+
     [Fact]
     public void ResourceMaterializationConvertsGcnImagesButPreservesNativeAgcImages()
     {
@@ -496,6 +658,45 @@ public sealed class GcnShaderTests
         var request = new ShaderCompileRequest(plan, resources, layout) { LocalSizeX = 1, ThreadCountX = 1 };
         Assert.True(Gen5SpirvTranslator.TryCompileProgram(request, out var shader, out var error), error);
         Assert.NotEmpty(shader.Spirv);
+    }
+
+    [Theory]
+    [InlineData(0xE030812Cu, "GlobalLoadDword", 1u)]
+    [InlineData(0xE038812Cu, "GlobalLoadDwordx4", 4u)]
+    [InlineData(0xE070812Cu, "GlobalStoreDword", 1u)]
+    [InlineData(0xE078812Cu, "GlobalStoreDwordx4", 4u)]
+    public void Address64BufferAccessesReachTheGlobalMemoryBackend(uint word, string opcode, uint count)
+    {
+        var original = Decode(word, 0x0801080C, 0xBF810000);
+        Assert.Contains(Gen5Operand.Vector(13), original.Instructions[0].Sources);
+        Assert.True(GcnStorageImageLowering.TryLower(original, out var program, out var error), error);
+        var memory = Assert.Single(program.Instructions, instruction => instruction.Control is Gen5GlobalMemoryControl);
+        Assert.Equal(opcode, memory.Opcode);
+        var control = Assert.IsType<Gen5GlobalMemoryControl>(memory.Control);
+        Assert.Equal(count, control.DwordCount);
+        Assert.Equal(300, control.OffsetBytes);
+        Assert.True(control.ScalarAddress >= 125);
+        Assert.False(control.UsesFlatAddress);
+        Assert.DoesNotContain(program.Instructions, instruction => instruction.Control is Gen5BufferMemoryControl);
+        Assert.DoesNotContain(program.Instructions, instruction =>
+            instruction.Destinations.Any(destination => destination.Kind == Gen5OperandKind.ScalarRegister &&
+                destination.Value is 106 or 107 or 126 or 127));
+        var (plan, resources, layout) = ResourceTestProgram.Prepare(program);
+        var request = new ShaderCompileRequest(plan, resources, layout) { LocalSizeX = 1, ThreadCountX = 1 };
+        Assert.True(Gen5SpirvTranslator.TryCompileProgram(request, out var shader, out error), error);
+        Assert.NotEmpty(shader.Spirv);
+    }
+
+    [Theory]
+    [InlineData(0xE030912Cu, 0x0801080Cu)]
+    [InlineData(0xE030A12Cu, 0x0801080Cu)]
+    [InlineData(0xE031812Cu, 0x0801080Cu)]
+    [InlineData(0xE030812Cu, 0x080108FFu)]
+    public void InvalidAddress64BufferModesAndRegisterPairsRemainRejected(uint word, uint extra)
+    {
+        var memory = Binary(word, extra, 0xBF810000);
+        Assert.False(GcnShaderDecoder.TryDecode(memory, Address, 12, out _, out var error));
+        Assert.Contains("unsupported-gcn-", error);
     }
 
     [Fact]

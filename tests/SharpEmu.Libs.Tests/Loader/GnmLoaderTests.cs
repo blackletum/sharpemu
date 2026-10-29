@@ -266,6 +266,34 @@ public sealed class GnmLoaderTests : IDisposable
     }
 
     [Theory]
+    [InlineData(0u, 0)]
+    [InlineData(0x8000u, 0)]
+    [InlineData(0x10000u, 5)]
+    [InlineData(0x18000u, 2)]
+    public void CpuModeUsesApplicationAttributesAndResetsForTheNextTitle(uint attributes, int expected)
+    {
+        var data = new byte[52];
+        "\0PSF"u8.CopyTo(data);
+        Write32(data, 4, 0x101);
+        Write32(data, 8, 36);
+        Write32(data, 12, 48);
+        Write32(data, 16, 1);
+        Write16(data, 22, 0x404);
+        Write32(data, 24, 4);
+        Write32(data, 28, 4);
+        "ATTRIBUTE\0"u8.CopyTo(data.AsSpan(36));
+        Write32(data, 48, attributes);
+        var loader = new GnmSelfLoader();
+        var memory = new VirtualMemory();
+        _ = loader.Load(CreateImage(false), memory, new SfoFileSystem(data), "app0");
+        var context = new CpuContext(memory, Generation.Gen4);
+        Assert.Equal(expected, SharpEmu.GnmMode.Libraries.Kernel.GnmKernelExports.GetCpuMode(context));
+        Assert.Equal((ulong)expected, context[CpuRegister.Rax]);
+        _ = loader.Load(CreateImage(false), memory);
+        Assert.Equal(0, SharpEmu.GnmMode.Libraries.Kernel.GnmKernelExports.GetCpuMode(context));
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public void ReadsAdjacentPs4MetadataForLogNames(bool self)
@@ -350,7 +378,7 @@ public sealed class GnmLoaderTests : IDisposable
         }
     }
 
-    private static byte[] CreateImage(bool self)
+    internal static byte[] CreateImage(bool self)
     {
         var elf = new byte[0x1400];
         "\u007fELF"u8.CopyTo(elf);

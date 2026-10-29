@@ -18,6 +18,47 @@ namespace SharpEmu.Libs.Tests.Gpu.Vulkan;
 public sealed class GcnComputeDeviceTests(HeadlessVulkanFixture fixture) : IClassFixture<HeadlessVulkanFixture>
 {
     [Theory]
+    [InlineData(1u)]
+    [InlineData(4u)]
+    public void Address64LoadsIncludeBothCarriesAndIgnoreDescriptorSize(uint count)
+    {
+        var vulkan = fixture.Vulkan;
+        if (!GatePrerequisites.Ready(vulkan, shaderInt64: true)) return;
+        uint[] words = [0x7E0002FF, 0xFFFFFFF0, 0x7E0202FF, 14,
+            count == 1 ? 0xE030812Cu : 0xE038812Cu, 0x08010400,
+            count == 1 ? 0xE0700000u : 0xE0780000u, 0x80030400, 0xBF810000];
+        Assert.True(GcnShaderDecoder.TryDecode(new CodeMemory(words), CodeMemory.Address, (uint)words.Length * 4,
+            out var original, out var error), error);
+        Assert.True(GcnStorageImageLowering.TryLower(original, out var program, out error), error);
+        var (plan, resources, layout) = ResourceTestProgram.Prepare(program, userDataCount: 16);
+        var request = new ShaderCompileRequest(plan, resources, layout) { LocalSizeX = 1, ThreadCountX = 1 };
+        Assert.True(Gen5SpirvTranslator.TryCompileProgram(request, out var shader, out error), error);
+        using var harness = new ImageTestHarness(vulkan);
+        using var runner = new LayoutComputeRunner(harness, request, shader.Spirv);
+        const ulong guestBase = 0x11_0000_0000;
+        var sourceBytes = new byte[(int)Gen5SpirvTranslator.DeviceAddressPageSize];
+        uint[] expected = [0x11223344, 0x55667788, 0x99AABBCC, 0xDDEEFF00];
+        for (var index = 0; index < expected.Length; index++)
+            BinaryPrimitives.WriteUInt32LittleEndian(sourceBytes.AsSpan(0x13C + index * 4), expected[index]);
+        var source = runner.CreateBuffer(sourceBytes);
+        var table = runner.CreatePageTable((guestBase >> Gen5SpirvTranslator.DeviceAddressPageBits) + 1,
+            [(guestBase, source, 0UL)]);
+        var output = runner.CreateBuffer(count * 4);
+        var userData = new uint[16];
+        userData[4] = 0xFFFFFFF0;
+        userData[5] = 1;
+        userData[8] = 0x30;
+        userData[14] = count * 4;
+        harness.Run(() => runner.Dispatch(userData, new Dictionary<DescriptorBindingKind, GpuBuffer[]>
+        {
+            [DescriptorBindingKind.Buffers] = [output],
+            [DescriptorBindingKind.DeviceAddressPageTable] = [table],
+        }, 1));
+        Assert.Equal(MemoryMarshal.AsBytes<uint>(expected.AsSpan(0, (int)count)).ToArray(), runner.ReadBack(output, 0, count * 4));
+        harness.AssertNoValidationMessages();
+    }
+
+    [Theory]
     [InlineData(1u, 1u, false)]
     [InlineData(1u, 1u, true)]
     [InlineData(17u, 2u, false)]
