@@ -122,6 +122,8 @@ public static class GnmExportRegistry
             new("libSceGnmDriver", "zwY0YV91TTI", "sceGnmSubmitCommandBuffers", Generation.Gen4, GnmDriverExports.SubmitCommandBuffers),
             new("libSceGnmDriver", "xbxNatawohc", "sceGnmSubmitAndFlipCommandBuffers", Generation.Gen4, GnmDriverExports.SubmitAndFlipCommandBuffers),
             new("libSceGnmDriver", "yvZ73uQUqrk", "sceGnmSubmitDone", Generation.Gen4, GnmDriverExports.SubmitDone),
+            new("libSceGnmDriver", "b08AgtPlHPg", "sceGnmAreSubmitsAllowed", Generation.Gen4, GnmDriverExports.AreSubmitsAllowed),
+            new("libSceGnmDriver", "1qXLHIpROPE", "sceGnmInsertWaitFlipDone", Generation.Gen4, GnmDriverExports.InsertWaitFlipDone),
             new("libSceGnmDriver", "W1Etj-jlW7Y", "sceGnmInsertPushMarker", Generation.Gen4, GnmDriverExports.InsertMarker),
             new("libSceGnmDriver", "7qZVNgEu+SY", "sceGnmInsertPopMarker", Generation.Gen4, GnmDriverExports.InsertMarker),
             new("libSceGnmDriver", "ln33zjBrfjk", "sceGnmGetTheTessellationFactorRingBufferBaseAddress", Generation.Gen4,

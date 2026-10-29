@@ -14,6 +14,21 @@ public static partial class GnmDriverExports
 {
     public static int IsUserPaEnabled(CpuContext context) => context.SetReturn(0);
 
+    public static int AreSubmitsAllowed(CpuContext context) => context.SetReturn(1);
+
+    public static int InsertWaitFlipDone(CpuContext context)
+    {
+        if (context[CpuRegister.Rdi] == 0 || (uint)context[CpuRegister.Rsi] != 7 ||
+            (uint)context[CpuRegister.Rcx] >= 16)
+            return context.SetReturn(-1);
+        Span<uint> commands = stackalloc uint[7];
+        commands.Clear();
+        commands[0] = PacketHeader.Make(7, PacketOpcode.Nop, PacketCustomCode.WaitFlipDone);
+        commands[1] = (uint)context[CpuRegister.Rdx];
+        commands[2] = (uint)context[CpuRegister.Rcx];
+        return context.SetReturn(context.Memory.TryWrite(context[CpuRegister.Rdi], MemoryMarshal.AsBytes(commands)) ? 0 : -1);
+    }
+
     public static int DispatchInitDefaultHardwareState(CpuContext context) => WriteDefaultState(context, compute: true);
     public static int DrawInitDefaultHardwareState200(CpuContext context) => WriteDefaultState(context, compute: false);
     public static int DrawInitDefaultHardwareState350(CpuContext context) => WriteDefaultState(context, compute: false);
