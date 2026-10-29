@@ -959,6 +959,8 @@ public sealed unsafe partial class GuestImageCache
         using var held = _lock.Hold();
         var selected = ResourceSlotIdentifier.Invalid;
         ImageAspectFlags aspect = 0;
+        uint firstLayer = 0;
+        uint layerCount = 0;
         foreach (var imageIdentifier in FindImagesInRange(address, size, pageOverlap: false, includeParked: true))
         {
             var owner = _slots.TryGet(imageIdentifier);
@@ -969,6 +971,8 @@ public sealed unsafe partial class GuestImageCache
 
             ImageAspectFlags candidate = 0;
             var candidateId = imageIdentifier;
+            uint candidateFirstLayer = 0;
+            uint candidateLayerCount = 0;
             if (owner.DepthOwner.IsValid && owner.Description.Data.Address == address && owner.Description.Data.Size == size)
             {
                 candidate = ImageAspectFlags.StencilBit;
@@ -983,6 +987,10 @@ public sealed unsafe partial class GuestImageCache
             {
                 candidate = owner.Description.IsDepth ? ImageAspectFlags.DepthBit : ImageAspectFlags.ColorBit;
             }
+            else if (TryFindClearedLayers(owner, address, size, out candidateFirstLayer, out candidateLayerCount))
+            {
+                candidate = ImageAspectFlags.ColorBit;
+            }
 
             if (candidate == 0)
             {
@@ -996,6 +1004,8 @@ public sealed unsafe partial class GuestImageCache
 
             selected = candidateId;
             aspect = candidate;
+            firstLayer = candidateFirstLayer;
+            layerCount = candidateLayerCount;
         }
 
         if (!selected.IsValid)
@@ -1020,7 +1030,7 @@ public sealed unsafe partial class GuestImageCache
             return false;
         }
 
-        if (aspect == ImageAspectFlags.ColorBit)
+        if (aspect == ImageAspectFlags.ColorBit && layerCount == 0)
         {
             // The full color clear replaces all texels. Keep the watch without copying old data.
             WatchImage(selected);
@@ -1037,7 +1047,9 @@ public sealed unsafe partial class GuestImageCache
         command.EndRendering();
         var native = new CommandBuffer(command.Handle);
         image.Transition(AccessFlags.TransferWriteBit, null, native);
-        var range = new ImageSubresourceRange(aspect, 0, Vk.RemainingMipLevels, 0, image.Backing.Layers);
+        var range = layerCount == 0
+            ? new ImageSubresourceRange(aspect, 0, Vk.RemainingMipLevels, 0, image.Backing.Layers)
+            : new ImageSubresourceRange(aspect, 0, 1, firstLayer, layerCount);
         if (aspect == ImageAspectFlags.ColorBit)
         {
             using (RenderPhaseProfile.MeasureDetail(RenderPhaseProfile.Phase.VulkanCommands))
@@ -1060,6 +1072,31 @@ public sealed unsafe partial class GuestImageCache
             TakeStencilOwnership(selected, image);
         }
 
+        return true;
+    }
+
+    private static bool TryFindClearedLayers(CachedImage image, ulong address, ulong size, out uint firstLayer, out uint layerCount)
+    {
+        firstLayer = 0;
+        layerCount = 0;
+        ref readonly var description = ref image.Description;
+        var layers = description.Resources.Layers;
+        if (image.DepthOwner.IsValid || description.IsDepth || description.IsVolume || description.HasMetadata ||
+            description.Resources.Levels != 1 || description.Samples != 1 || layers < 2 || description.Data.Size % layers != 0 ||
+            address < description.Data.Address || size > description.Data.End - address)
+        {
+            return false;
+        }
+
+        var layerSize = description.Data.Size / layers;
+        var offset = address - description.Data.Address;
+        if (offset % layerSize != 0 || size % layerSize != 0 || size == description.Data.Size)
+        {
+            return false;
+        }
+
+        firstLayer = (uint)(offset / layerSize);
+        layerCount = (uint)(size / layerSize);
         return true;
     }
 }

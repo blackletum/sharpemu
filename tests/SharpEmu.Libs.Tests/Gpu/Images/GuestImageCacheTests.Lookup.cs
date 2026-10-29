@@ -102,4 +102,28 @@ public sealed partial class GuestImageCacheTests
 
         harness.Shutdown();
     }
+
+    [Fact]
+    public void TryClearImageFromBuffer_AClearOfOneLayerClearsOnlyThatLayer()
+    {
+        if (!GatePrerequisites.Ready(_vulkan)) return;
+        using var harness = new CacheHarness(_vulkan);
+        const uint width = 64;
+        const uint layers = 4;
+        const ulong layerSize = width * width * 4;
+        var address = harness.MapBacked(layerSize * layers, ReadWrite);
+        harness.Write(address, Bytes(Enumerable.Repeat(0x11111111u, (int)(width * width * layers)).ToArray()));
+        var request = LinearRequest(address, layerSize * layers, Format.R32Uint, GuestPixelFormat.Bits32UInt, GuestImageType.Color2D,
+            new Extent3D(width, width, 1), layers, 4, 1);
+        var imageId = harness.Acquire(ref request);
+
+        Assert.True(harness.Worker.Run(() => harness.Images.TryClearImageFromBuffer(address + layerSize * 2, layerSize, 0x22222222u)));
+
+        var expected = Enumerable.Repeat(0x11111111u, (int)(width * width * layers)).ToArray();
+        Array.Fill(expected, 0x22222222u, (int)(width * width * 2), (int)(width * width));
+        Assert.True(harness.Image(imageId).IsGpuModified);
+        Assert.Equal(Bytes(expected), harness.ReadImageBytes(harness.Image(imageId)));
+
+        harness.Shutdown();
+    }
 }
