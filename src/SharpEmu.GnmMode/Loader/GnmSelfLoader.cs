@@ -51,6 +51,7 @@ public sealed partial class GnmSelfLoader : ISelfLoader
             SharpEmu.Libs.Agc.AgcExports.SetShaderFrontend(memory, new Shaders.GcnShaderFrontend(memory));
             Gpu.GnmCommandPackets.Reset(memory);
             Libraries.Gnm.GnmDriverExports.ResetComputeMappings(memory);
+            Libraries.Np.GnmMatching2Exports.Reset();
             GuestTlsTemplate.Reset();
             _nextTlsModule = 1;
             _imageIndex = 0;
