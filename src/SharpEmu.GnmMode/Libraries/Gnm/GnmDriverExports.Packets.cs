@@ -108,5 +108,74 @@ public static partial class GnmDriverExports
         return context.SetReturn(context.Memory.TryWrite(context[CpuRegister.Rdi], MemoryMarshal.AsBytes(commands)) ? 0 : -1);
     }
 
+    public static int DrawIndirect(CpuContext context)
+    {
+        var stage = (uint)context[CpuRegister.Rcx];
+        var vertexOffset = (uint)context[CpuRegister.R8];
+        var instanceOffset = (uint)context[CpuRegister.R9];
+        if (context[CpuRegister.Rdi] == 0 || (uint)context[CpuRegister.Rsi] != 9 || stage >= 7 ||
+            vertexOffset >= 16 || instanceOffset >= 16 ||
+            !context.TryReadUInt32(context[CpuRegister.Rsp] + 8, out var flags))
+            return context.SetReturn(-1);
+        var scalarBase = stage switch { 2 => 0x4Cu, 4 => 0xCCu, 6 => 0x14Cu, _ => 0u };
+        Span<uint> commands = stackalloc uint[9];
+        commands.Clear();
+        commands[0] = PacketHeader.Make(5, PacketOpcode.DrawIndirect) | (flags & 1);
+        commands[1] = (uint)context[CpuRegister.Rdx];
+        commands[2] = vertexOffset == 0 ? 0 : scalarBase + vertexOffset;
+        commands[3] = instanceOffset == 0 ? 0 : scalarBase + instanceOffset;
+        commands[4] = 2;
+        commands[5] = PacketHeader.Make(4, PacketOpcode.Nop);
+        return context.SetReturn(context.Memory.TryWrite(context[CpuRegister.Rdi], MemoryMarshal.AsBytes(commands)) ? 0 : -1);
+    }
+
+    public static int DrawIndexAuto(CpuContext context)
+    {
+        var flags = (uint)context[CpuRegister.Rcx];
+        if (context[CpuRegister.Rdi] == 0 || (uint)context[CpuRegister.Rsi] != 7 || (flags & 0x1FFFFFFE) != 0)
+            return context.SetReturn(-1);
+        Span<uint> commands = stackalloc uint[7];
+        commands.Clear();
+        commands[0] = PacketHeader.Make(3, PacketOpcode.DrawIndexAuto);
+        commands[1] = (uint)context[CpuRegister.Rdx];
+        commands[2] = 2;
+        commands[3] = PacketHeader.Make(4, PacketOpcode.Nop);
+        return context.SetReturn(context.Memory.TryWrite(context[CpuRegister.Rdi], MemoryMarshal.AsBytes(commands)) ? 0 : -1);
+    }
+
+    public static int DrawIndexOffset(CpuContext context)
+    {
+        if (context[CpuRegister.Rdi] == 0 || (uint)context[CpuRegister.Rsi] != 9)
+            return context.SetReturn(-1);
+        var count = (uint)context[CpuRegister.Rcx];
+        Span<uint> commands = stackalloc uint[9];
+        commands.Clear();
+        commands[0] = PacketHeader.Make(5, PacketOpcode.DrawIndexOffset2) | ((uint)context[CpuRegister.R8] & 1);
+        commands[1] = count;
+        commands[2] = (uint)context[CpuRegister.Rdx];
+        commands[3] = count;
+        commands[5] = PacketHeader.Make(4, PacketOpcode.Nop);
+        return context.SetReturn(context.Memory.TryWrite(context[CpuRegister.Rdi], MemoryMarshal.AsBytes(commands)) ? 0 : -1);
+    }
+
+    public static int DrawIndex(CpuContext context)
+    {
+        var address = context[CpuRegister.Rcx];
+        var flags = (uint)context[CpuRegister.R8];
+        if (context[CpuRegister.Rdi] == 0 || (uint)context[CpuRegister.Rsi] != 10 || address == 0 ||
+            (address & 1) != 0 || (flags & 0x1FFFFFFE) != 0)
+            return context.SetReturn(-1);
+        var count = (uint)context[CpuRegister.Rdx];
+        Span<uint> commands = stackalloc uint[10];
+        commands.Clear();
+        commands[0] = PacketHeader.Make(6, PacketOpcode.DrawIndex2);
+        commands[1] = count;
+        commands[2] = (uint)address;
+        commands[3] = (uint)(address >> 32);
+        commands[4] = count;
+        commands[6] = PacketHeader.Make(4, PacketOpcode.Nop);
+        return context.SetReturn(context.Memory.TryWrite(context[CpuRegister.Rdi], MemoryMarshal.AsBytes(commands)) ? 0 : -1);
+    }
+
 
 }
