@@ -58,7 +58,7 @@ public sealed class Gen5DispatchRequest
     public uint ThreadLimitZ { get; init; } = uint.MaxValue;
     public uint WaveSize { get; init; } = 64;
     public bool PreservesFloatSpecials { get; init; } = true;
-    public long LaneOperationBudget { get; init; } = 128L * 1024 * 1024;
+    public long LaneOperationBudget { get; init; } = 1024L * 1024;
     public long ThreadBudget { get; init; } = 1024 * 1024;
     public int OutputDwordBudget { get; init; } = Gen5EvaluationWrites.MaxOutputDwords;
 }
