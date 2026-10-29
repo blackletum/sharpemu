@@ -699,6 +699,8 @@ internal static class GnmCommandPackets
             return agcHandler(interpreter, in normalized, payload);
         Span<uint> fields = stackalloc uint[7];
         payload.CopyTo(fields);
+        if ((fields[0] & 0x3Fu) == 0x2F && ((fields[1] >> 29) & 7u) == 3)
+            fields[0] = (fields[0] & ~0x73Fu) | 0x504u;
         // PS4 has no trailing interrupt-context dword; keep the original packet's consumed length.
         fields[6] = 0;
         normalized = normalized with { Header = PacketHeader.Make(8, PacketOpcode.ReleaseMemory) };
