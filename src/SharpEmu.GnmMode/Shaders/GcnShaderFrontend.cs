@@ -52,7 +52,7 @@ public sealed partial class GcnShaderFrontend : IShaderFrontend
         }
     }
 
-    public ulong CacheDomain => 0x47434E31_00000016;
+    public ulong CacheDomain => 0x47434E31_0000001B;
     public uint VertexUserDataBase => 0;
     public bool HasVertexTables => false;
     public bool RequiresExplicitBufferLengths => true;
