@@ -177,5 +177,15 @@ public static partial class GnmDriverExports
         return context.SetReturn(context.Memory.TryWrite(context[CpuRegister.Rdi], MemoryMarshal.AsBytes(commands)) ? 0 : -1);
     }
 
-
+    public static int SetVgtControl(CpuContext context)
+    {
+        var groupSizeMinusOne = (uint)context[CpuRegister.Rdx];
+        var partialWave = (uint)context[CpuRegister.Rcx];
+        var switchOnEop = (uint)context[CpuRegister.R8];
+        if (context[CpuRegister.Rdi] == 0 || (uint)context[CpuRegister.Rsi] != 3 || groupSizeMinusOne >= 0x100 ||
+            (partialWave | switchOnEop) >= 2)
+            return context.SetReturn(-1);
+        Span<uint> commands = [PacketHeader.Make(3, PacketOpcode.SetContextRegister), 0x2AA, groupSizeMinusOne | (partialWave << 16)];
+        return context.SetReturn(context.Memory.TryWrite(context[CpuRegister.Rdi], MemoryMarshal.AsBytes(commands)) ? 0 : -1);
+    }
 }

@@ -145,6 +145,7 @@ public static class GnmExportRegistry
             new("libSceGnmDriver", "4v+otIIdjqg", "sceGnmDrawIndirect", Generation.Gen4, GnmDriverExports.DrawIndirect),
             new("libSceGnmDriver", "oYM+YzfCm2Y", "sceGnmDrawIndexOffset", Generation.Gen4, GnmDriverExports.DrawIndexOffset),
             new("libSceGnmDriver", "HlTPoZ-oY7Y", "sceGnmDrawIndex", Generation.Gen4, GnmDriverExports.DrawIndex),
+            new("libSceGnmDriver", "cFCp0NX8wf0", "sceGnmSetVgtControl", Generation.Gen4, GnmDriverExports.SetVgtControl),
             new("libSceGnmDriver", "nF6bFRUBRAU", "sceGnmDispatchInitDefaultHardwareState", Generation.Gen4,
                 GnmDriverExports.DispatchInitDefaultHardwareState),
             new("libSceGnmDriver", "0H2vBYbTLHI", "sceGnmDrawInitDefaultHardwareState200", Generation.Gen4,
