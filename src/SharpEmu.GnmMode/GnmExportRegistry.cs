@@ -137,6 +137,8 @@ public static class GnmExportRegistry
             new("libSceGnmDriver", "bX5IbRvECXk", "sceGnmDingDong", Generation.Gen4, GnmDriverExports.DingDong),
             new("libSceGnmDriver", "jg33rEKLfVs", "sceGnmIsUserPaEnabled", Generation.Gen4, GnmDriverExports.IsUserPaEnabled),
             new("libSceGnmDriver", "KXltnCwEJHQ", "sceGnmSetCsShader", Generation.Gen4, GnmDriverExports.SetCsShader),
+            new("libSceGnmDriver", "Kx-h-nWQJ8A", "sceGnmSetCsShaderWithModifier", Generation.Gen4,
+                GnmDriverExports.SetCsShaderWithModifier),
             new("libSceGnmDriver", "nF6bFRUBRAU", "sceGnmDispatchInitDefaultHardwareState", Generation.Gen4,
                 GnmDriverExports.DispatchInitDefaultHardwareState),
             new("libSceGnmDriver", "0H2vBYbTLHI", "sceGnmDrawInitDefaultHardwareState200", Generation.Gen4,

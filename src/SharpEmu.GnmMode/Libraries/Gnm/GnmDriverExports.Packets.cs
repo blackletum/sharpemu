@@ -44,14 +44,22 @@ public static partial class GnmDriverExports
         return context.SetReturn(context.Memory.TryWrite(context[CpuRegister.Rdi], commands) ? (int)dwords : 0);
     }
 
-    public static int SetCsShader(CpuContext context)
+    public static int SetCsShader(CpuContext context) => SetCsShader(context, 0);
+
+    public static int SetCsShaderWithModifier(CpuContext context) => SetCsShader(context, (uint)context[CpuRegister.Rcx]);
+
+    private static int SetCsShader(CpuContext context, uint modifier)
     {
-        if (context[CpuRegister.Rdi] == 0 || (uint)context[CpuRegister.Rsi] < 25 || context[CpuRegister.Rdx] == 0)
+        if (context[CpuRegister.Rdi] == 0 || (uint)context[CpuRegister.Rsi] < 25 || context[CpuRegister.Rdx] == 0 ||
+            (modifier & 0xFFFFFC3F) != 0)
             return context.SetReturn(-1);
         Span<byte> registers = stackalloc byte[7 * sizeof(uint)];
         if (!KernelMemoryCompatExports.TryReadGuestStructure(context, context[CpuRegister.Rdx], registers) ||
             BinaryPrimitives.ReadUInt32LittleEndian(registers[4..]) != 0)
             return context.SetReturn(-1);
+        if (modifier != 0)
+            BinaryPrimitives.WriteUInt32LittleEndian(registers[8..],
+                (BinaryPrimitives.ReadUInt32LittleEndian(registers[8..]) & 0xFFFFFC3F) | modifier);
         Span<byte> commands = stackalloc byte[25 * sizeof(uint)];
         commands.Clear();
         BinaryPrimitives.WriteUInt32LittleEndian(commands, PacketHeader.Make(4, PacketOpcode.SetShaderRegister));
@@ -66,4 +74,5 @@ public static partial class GnmDriverExports
         BinaryPrimitives.WriteUInt32LittleEndian(commands[52..], PacketHeader.Make(12, PacketOpcode.Nop));
         return context.SetReturn(context.Memory.TryWrite(context[CpuRegister.Rdi], commands) ? 0 : -1);
     }
+
 }
