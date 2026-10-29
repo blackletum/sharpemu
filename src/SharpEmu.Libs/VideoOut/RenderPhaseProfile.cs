@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 using System.Diagnostics;
+using SharpEmu.HLE.Diagnostics;
 
 namespace SharpEmu.Libs.VideoOut;
 
@@ -355,11 +356,14 @@ internal static class RenderPhaseProfile
     [ThreadStatic] private static Phase _current;
     [ThreadStatic] private static long _lastTimestamp;
     [ThreadStatic] private static int _scopeDepth;
-    [ThreadStatic] private static long[]? _threadTicks;
-    [ThreadStatic] private static long[]? _threadEntries;
+    [ThreadStatic] private static ThreadCounter[]? _threadTicks;
+    [ThreadStatic] private static ThreadCounter[]? _threadEntries;
 
-    private static readonly long[] _workerTicks = new long[(int)Phase.Count];
-    private static readonly long[] _workerEntries = new long[(int)Phase.Count];
+    private static class ResolveCounters
+    {
+        internal static readonly ThreadCounter[] Ticks = Enumerable.Range(0, (int)Phase.Count).Select(static _ => new ThreadCounter()).ToArray();
+        internal static readonly ThreadCounter[] Entries = Enumerable.Range(0, (int)Phase.Count).Select(static _ => new ThreadCounter()).ToArray();
+    }
 
     internal static void AttachResolveWorker()
     {
@@ -368,8 +372,8 @@ internal static class RenderPhaseProfile
             return;
         }
 
-        _threadTicks = _workerTicks;
-        _threadEntries = _workerEntries;
+        _threadTicks = ResolveCounters.Ticks;
+        _threadEntries = ResolveCounters.Entries;
         _current = Phase.IdleNoQueuedWork;
         _lastTimestamp = Stopwatch.GetTimestamp();
         _scopeDepth = 1;
@@ -380,8 +384,8 @@ internal static class RenderPhaseProfile
         var parts = new List<string>();
         for (var index = 0; index < (int)Phase.Count; index++)
         {
-            var ticks = Interlocked.Exchange(ref _workerTicks[index], 0);
-            var entries = Interlocked.Exchange(ref _workerEntries[index], 0);
+            var ticks = ResolveCounters.Ticks[index].Take();
+            var entries = ResolveCounters.Entries[index].Take();
             if (ticks > 0)
             {
                 parts.Add(FormattableString.Invariant($"{(Phase)index}={ticks * 1000.0 / Stopwatch.Frequency:F2}ms/n{entries}"));
@@ -424,7 +428,7 @@ internal static class RenderPhaseProfile
             Charge(phase);
             if (_threadEntries is { } threadEntries)
             {
-                Interlocked.Increment(ref threadEntries[(int)phase]);
+                threadEntries[(int)phase].Increment();
             }
             else
             {
@@ -444,7 +448,7 @@ internal static class RenderPhaseProfile
         _scopeDepth++;
         if (_threadEntries is { } threadEntries)
         {
-            Interlocked.Increment(ref threadEntries[(int)phase]);
+            threadEntries[(int)phase].Increment();
         }
         else
         {
@@ -473,7 +477,7 @@ internal static class RenderPhaseProfile
         {
             if (_threadTicks is { } threadTicks)
             {
-                Interlocked.Add(ref threadTicks[(int)previous], now - _lastTimestamp);
+                threadTicks[(int)previous].Add(now - _lastTimestamp);
             }
             else
             {

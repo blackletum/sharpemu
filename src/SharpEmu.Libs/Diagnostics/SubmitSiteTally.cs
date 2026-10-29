@@ -83,7 +83,7 @@ internal sealed class CallSiteTally(string tag, int sampleEvery)
 
         foreach (var (site, count) in ranked)
         {
-            Console.Error.WriteLine(FormattableString.Invariant($"[PERF][{tag}] n={count * sampleEvery} site={site}"));
+            Console.Error.WriteLine(FormattableString.Invariant($"[PERF][{tag}] n={count * sampleEvery} sample_every={sampleEvery} site={site}"));
         }
     }
 }
@@ -92,7 +92,7 @@ internal static class SubmitSiteTally
 {
     public static readonly bool Enabled = VideoOut.RenderPhaseProfile.Enabled;
 
-    private static readonly CallSiteTally Tally = new("SUBMIT_SITE", 1);
+    private static readonly CallSiteTally Tally = new("SUBMIT_SITE", 64);
 
     public static void Note() => Tally.Note();
 

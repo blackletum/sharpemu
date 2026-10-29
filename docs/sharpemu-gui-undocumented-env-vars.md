@@ -444,6 +444,12 @@ They also measure program decoding, planning, layout/request construction,
 translation, and compute pipeline waiting. Detail scopes require an active
 render profile scope on the calling thread.
 
+Resolve workers keep phase counters per thread and aggregate them at reporting
+time. `[PERF][SUBMIT_SITE]` and `[PERF][PROMOTION_SITE]` sample one call stack
+per 64 calls. Their `n` values are estimates; `sample_every` records the sampling
+interval. Profiling still adds work, so compare gameplay FPS with the same
+profiling settings on both machines, and confirm results with profiling off.
+
 `[PERF][COMPUTE_COMPILE]` reports cumulative asynchronous compile start delay,
 compiler-slot wait, pipeline-cache load, driver compilation, and result
 consumption delay. These are worker wall times, not GPU execution times.
