@@ -216,10 +216,13 @@ public static class GcnImageDescriptor
         var baseLevel = (words[3] >> 12) & 15;
         var lastLevel = (words[3] >> 16) & 15;
         var tile = (words[3] >> 20) & 31;
+        var microTiled = tile is 13 or 19;
         var type = words[3] >> 28;
         var pitch = ((words[4] >> 13) & 0x3FFF) + 1;
         var baseArray = words[5] & 0x1FFF;
         var lastArray = (words[5] >> 13) & 0x1FFF;
+        if (type == 11)
+            lastArray = Math.Min(lastArray, ((words[4] & 0x1FFF) + 1) * 6 - 1);
         var format = UnifiedFormats[(data << 4) | number];
         var bytes = BytesPerTexel(data);
         var addressBase = ((ulong)words[0] | ((ulong)(words[1] & 63) << 32)) << 8;
@@ -228,7 +231,7 @@ public static class GcnImageDescriptor
             type is 9 or 13 && format == (uint)depth.Format &&
             widthMinusOne < depth.Width && heightMinusOne < depth.Height && lastArray < depth.Layers;
         var rowTexels = bytes == 0 ? 0 : 256 / bytes * BlockWidth(data);
-        var linearRepack = !colorTarget && !depthTarget && tile != 13 && rowTexels != 0 &&
+        var linearRepack = !colorTarget && !depthTarget && !microTiled && rowTexels != 0 &&
             pitch != (widthMinusOne + rowTexels) / rowTexels * rowTexels;
 
         string? failure = null;
@@ -236,14 +239,16 @@ public static class GcnImageDescriptor
             failure = $"unsupported-gcn-image-type:{type}";
         else if (format == uint.MaxValue || bytes == 0)
             failure = $"unmapped-gcn-format:{data}/{number}";
-        else if (!colorTarget && !depthTarget && (tile is not (8 or 13 or 31) || (tile == 13 && detiler is null)))
+        else if (!colorTarget && !depthTarget && (tile is not (8 or 13 or 19 or 31) || (microTiled && detiler is null)))
             failure = $"gcn-tiling-needs-detile:index-{tile}";
+        else if (tile == 19 && type != VolumeImageType)
+            failure = $"gcn-tile19-unsupported-shape:type={type}";
         else if (tile == 13 && (type is not (8 or 9 or 10 or 11 or 12 or 13) || (type is 8 or 12 && heightMinusOne != 0)))
             failure = $"gcn-tile13-unsupported-shape:type={type},height={heightMinusOne + 1},bytes={bytes}";
         else if ((baseLevel != 0 || lastLevel != 0) &&
-            (tile != 13 || type != 9 || colorTarget || depthTarget || baseLevel > lastLevel))
+            (tile != 13 || type is not (8 or 9 or 11 or 12 or 13) || colorTarget || depthTarget || baseLevel > lastLevel))
             failure = $"gcn-mip-layout-unimplemented:{baseLevel}-{lastLevel}";
-        else if (((words[3] >> 25) & 1) != 0 && (tile != 13 || colorTarget || depthTarget))
+        else if (((words[3] >> 25) & 1) != 0 && (!microTiled || colorTarget || depthTarget))
             failure = "gcn-pow2-padding-unimplemented";
         else if (((words[3] >> 27) & 1) != 0)
             failure = "gcn-atc-unimplemented";
@@ -262,12 +267,16 @@ public static class GcnImageDescriptor
         var tileAsLinear = tile == 13 && widthMinusOne == 0 && heightMinusOne == 0 && lastLevel == 0 &&
             bytes <= 4 && BlockWidth(data) == 1;
         ulong? detiledAddress = null;
-        if (tile == 13 && !colorTarget && !tileAsLinear)
+        if (microTiled && !colorTarget && !tileAsLinear)
         {
             var slices = type == VolumeImageType ? (words[4] & 0x1FFF) + 1 : lastArray + 1;
+            var sourceSlices = type == 11 ? ((words[4] & 0x1FFF) + 1) * 6
+                : type is 12 or 13 ? Math.Max((words[4] & 0x1FFF) + 1, slices) : slices;
+            if (((words[3] >> 25) & 1) != 0 && (type is 11 or 12 or 13 || tile == 19))
+                sourceSlices = System.Numerics.BitOperations.RoundUpToPowerOf2(sourceSlices);
             if (!detiler!.TryDetile(words, widthMinusOne + 1, heightMinusOne + 1, pitch, slices, lastLevel + 1,
                     ((words[3] >> 25) & 1) != 0, (GuestPixelFormat)format,
-                    out var destination, out var error, deferPreparation, allowPreparation))
+                    out var destination, out var error, deferPreparation, allowPreparation, sourceSlices))
                 return Trace(words, stage, shaderHash, source, error, []);
             detiledAddress = destination;
         }
@@ -323,7 +332,7 @@ public static class GcnImageDescriptor
             colorTarget ? "converted-gpu-color-target" :
                 depthTarget ? "converted-gpu-depth-target" :
                 tileAsLinear ? "converted-tile13-single-texel" :
-                tile == 13 ? $"converted-tile13-detiled:srcPitch={pitch},layers={lastArray + 1},levels={lastLevel + 1}" :
+                microTiled ? $"converted-tile{tile}-detiled:srcPitch={pitch},layers={lastArray + 1},levels={lastLevel + 1}" :
                 linearRepack ? $"converted-linear-pitched:pitch={pitch}" : "converted-linear",
             normalized);
     }

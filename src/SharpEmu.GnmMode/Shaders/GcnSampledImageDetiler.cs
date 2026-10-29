@@ -37,8 +37,8 @@ internal sealed class GcnSampledImageDetiler(ICpuMemory memory, Func<ulong, ulon
     private readonly ConcurrentDictionary<ulong, ShadowKey> _preparedKeys = new();
     private ulong _reservedBytes;
 
-    private readonly record struct ShadowKey(ulong Source, uint Width, uint Height, uint Pitch, uint Layers, uint Levels,
-        bool Pow2, GuestPixelFormat Format);
+    private readonly record struct ShadowKey(ulong Source, uint Width, uint Height, uint Pitch, uint Layers, uint SourceLayers, uint Levels,
+        bool Pow2, GuestPixelFormat Format, bool Thick);
 
     private readonly record struct Shadow(ulong Address, ulong Sample, ulong Content, long Epoch, long Verified, int Interval);
 
@@ -47,7 +47,8 @@ internal sealed class GcnSampledImageDetiler(ICpuMemory memory, Func<ulong, ulon
     internal static void AdvanceEpoch() => Interlocked.Increment(ref _epoch);
 
     public bool TryDetile(ReadOnlySpan<uint> words, uint width, uint height, uint pitch, uint layers, uint levels,
-        bool pow2, GuestPixelFormat format, out ulong destination, out string failure, bool deferPreparation = false, bool allowPreparation = true)
+        bool pow2, GuestPixelFormat format, out ulong destination, out string failure, bool deferPreparation = false,
+        bool allowPreparation = true, uint sourceLayers = 0)
     {
         destination = 0;
         failure = "";
@@ -58,7 +59,8 @@ internal sealed class GcnSampledImageDetiler(ICpuMemory memory, Func<ulong, ulon
             failure = $"gcn-tile13-invalid-footprint:width={width},pitch={pitch},layers={layers},levels={levels}";
             return false;
         }
-        var key = new ShadowKey(baseAddress, width, height, pitch, layers, levels, pow2, format);
+        var key = new ShadowKey(baseAddress, width, height, pitch, layers, sourceLayers == 0 ? layers : sourceLayers, levels, pow2, format,
+            ((words[3] >> 20) & 31) == 19);
         var geometry = GeometryOf(key);
         if (geometry.Failure is { } invalid)
         {
@@ -137,7 +139,7 @@ internal sealed class GcnSampledImageDetiler(ICpuMemory memory, Func<ulong, ulon
     }
 
     private Geometry GeometryOf(in ShadowKey key) => _geometries.GetOrAdd(
-        new GeometryKey(key.Width, key.Height, key.Pitch, key.Layers, key.Levels, key.Pow2, key.Format), BuildGeometry);
+        new GeometryKey(key.Width, key.Height, key.Pitch, key.Layers, key.SourceLayers, key.Levels, key.Pow2, key.Format, key.Thick), BuildGeometry);
 
     private bool Resolve(ShadowKey key, Geometry geometry, out ulong destination, out string failure, ulong preparedAddress = 0)
     {
@@ -227,6 +229,7 @@ internal sealed class GcnSampledImageDetiler(ICpuMemory memory, Func<ulong, ulon
 
         var detileStart = GnmImageProfile.Start();
         var linear = new byte[(int)destBytes];
+        var tileElements = key.Thick ? 256u : 64u;
         foreach (var transfer in geometry.Transfers)
         {
             // BC addressing counts 4x4 blocks, not individual texels. Thin microtiles
@@ -236,8 +239,19 @@ internal sealed class GcnSampledImageDetiler(ICpuMemory memory, Func<ulong, ulon
             {
                 var morton = (x & 1) | ((y & 1) << 1) | ((x & 2) << 1) |
                     ((y & 2) << 2) | ((x & 4) << 2) | ((y & 4) << 3);
+                if (key.Thick)
+                {
+                    var z = transfer.SurfaceZ;
+                    var low = elementBytes switch
+                    {
+                        1 or 2 => (x & 1) | ((y & 1) << 1) | ((x & 2) << 1) | ((y & 2) << 2) | ((z & 1) << 4),
+                        4 => (x & 1) | ((y & 1) << 1) | ((x & 2) << 1) | ((z & 1) << 3) | ((y & 2) << 3),
+                        _ => (x & 1) | ((y & 1) << 1) | ((z & 1) << 2) | ((x & 2) << 2) | ((y & 2) << 3),
+                    };
+                    morton = low | ((z & 2) << 4) | ((x & 4) << 4) | ((y & 4) << 5);
+                }
                 var tile = (ulong)(y >> 3) * (transfer.TiledWidth >> 3) + (x >> 3);
-                var from = (int)(transfer.TiledOffset + (tile * 64 + morton) * elementBytes);
+                var from = (int)(transfer.TiledOffset + (tile * tileElements + morton) * elementBytes);
                 var to = (int)(transfer.LinearOffset + ((ulong)y * transfer.Pitch + x) * elementBytes);
                 source.Slice(from, (int)elementBytes).CopyTo(linear.AsSpan(to, (int)elementBytes));
             }
@@ -247,8 +261,8 @@ internal sealed class GcnSampledImageDetiler(ICpuMemory memory, Func<ulong, ulon
         return StoreShadow(key, sample, content, epoch, destBytes, linear, out destination, out failure, preparedAddress);
     }
 
-    private readonly record struct GeometryKey(uint Width, uint Height, uint Pitch, uint Layers, uint Levels, bool Pow2,
-        GuestPixelFormat Format);
+    private readonly record struct GeometryKey(uint Width, uint Height, uint Pitch, uint Layers, uint SourceLayers, uint Levels, bool Pow2,
+        GuestPixelFormat Format, bool Thick);
 
     private sealed record Geometry(ulong SourceBytes, ulong DestinationBytes, TileTransfer[] Transfers, uint ElementBytes,
         string? Failure);
@@ -259,12 +273,16 @@ internal sealed class GcnSampledImageDetiler(ICpuMemory memory, Func<ulong, ulon
 
     private static Geometry BuildGeometry(GeometryKey geometryKey)
     {
-        var (width, height, pitch, layers, levels, pow2, format) = geometryKey;
+        var (width, height, pitch, layers, sourceLayers, levels, pow2, format, thick) = geometryKey;
         if (!TileGeometry.TryGetElementLayout(format, out var element))
             return Invalid($"gcn-tile13-unsupported-format:{format}");
-        if (width == 0 || height == 0 || pitch < width || layers == 0 ||
-            levels is 0 or > TiledSurfaceLayout.MaxLevels || levels > 1 && layers != 1)
+        if (width == 0 || height == 0 || pitch < width || layers == 0 || sourceLayers < layers ||
+            levels is 0 or > TiledSurfaceLayout.MaxLevels)
             return Invalid($"gcn-tile13-invalid-footprint:width={width},pitch={pitch},layers={layers},levels={levels}");
+        if (thick && (levels != 1 || element.TexelWidth != 1 || element.TexelHeight != 1 || element.Bytes is not (1 or 2 or 4 or 8 or 16)))
+            return Invalid($"gcn-tile19-unsupported-footprint:format={format},levels={levels}");
+        if (thick)
+            sourceLayers = (sourceLayers + 3) & ~3u;
 
         Span<ulong> sourceOffsets = stackalloc ulong[(int)levels];
         Span<uint> sourcePitches = stackalloc uint[(int)levels];
@@ -281,19 +299,19 @@ internal sealed class GcnSampledImageDetiler(ICpuMemory memory, Func<ulong, ulon
             }
             var alignedPitch = (levelPitch + 7) & ~7u;
             var alignedHeight = (levelHeight + 7) & ~7u;
-            while ((ulong)alignedPitch * alignedHeight * element.Bytes % 256 != 0)
+            while ((ulong)alignedPitch * alignedHeight * element.Bytes * (thick ? 4u : 1u) % 256 != 0)
                 alignedPitch += 8;
             sourceOffsets[level] = sourceBytes;
             sourcePitches[level] = alignedPitch;
             sourceHeights[level] = alignedHeight;
-            sourceBytes += (ulong)alignedPitch * alignedHeight * element.Bytes * layers;
+            sourceBytes += (ulong)alignedPitch * alignedHeight * element.Bytes * sourceLayers;
         }
 
         var spans = new TileLevelSpan[TiledSurfaceLayout.MaxLevels];
         var padded = new TilePaddedSize[TiledSurfaceLayout.MaxLevels];
         if (!TileGeometry.TryGetTextureSize(format, width, height, levels, GuestTileMode.Linear, out var total, spans, padded))
             return Invalid($"gcn-tile13-linear-layout-unsupported:format={format}");
-        var destBytes = levels == 1 ? (ulong)spans[0].Size * layers : total.Size;
+        var destBytes = (ulong)total.Size * layers;
         if (sourceBytes > MaxTextureBytes || destBytes > MaxTextureBytes)
             return Invalid($"gcn-tile13-invalid-footprint:width={width},pitch={pitch},layers={layers},levels={levels}");
 
@@ -313,9 +331,9 @@ internal sealed class GcnSampledImageDetiler(ICpuMemory memory, Func<ulong, ulon
                 {
                     Kind = TileBlockKind.GcnThin1D,
                     BytesPerElement = element.Bytes,
-                    TiledOffset = sourceOffsets[level] + layer * sliceBytes,
-                    TiledSize = sliceBytes,
-                    LinearOffset = spans[level].Offset + (ulong)layer * spans[level].Size,
+                    TiledOffset = sourceOffsets[level] + (thick ? layer & ~3u : layer) * sliceBytes,
+                    TiledSize = sliceBytes * (thick ? 4u : 1u),
+                    LinearOffset = spans[level].Offset + (ulong)layer * total.Size,
                     LinearSize = spans[level].Size,
                     Width = Math.Min(levelWidth, sourcePitches[level]),
                     Height = Math.Min(levelRows, sourceHeights[level]),
@@ -323,6 +341,7 @@ internal sealed class GcnSampledImageDetiler(ICpuMemory memory, Func<ulong, ulon
                     Pitch = targetPitch,
                     TiledWidth = sourcePitches[level],
                     TiledHeight = sourceHeights[level],
+                    SurfaceZ = thick ? layer & 3u : 0,
                 };
         }
         return new Geometry(sourceBytes, destBytes, transfers, element.Bytes, null);
@@ -380,7 +399,7 @@ internal sealed class GcnSampledImageDetiler(ICpuMemory memory, Func<ulong, ulon
     private bool TryDetileOnGpu(ShadowKey key, Geometry geometry, out ulong destination, ulong preparedAddress = 0)
     {
         destination = 0;
-        if (GnmGpuWrites.Buffers is not { ImageCache: { } images } buffers)
+        if (key.Thick || GnmGpuWrites.Buffers is not { ImageCache: { } images } buffers)
             return false;
         ulong address;
         lock (_gate)
