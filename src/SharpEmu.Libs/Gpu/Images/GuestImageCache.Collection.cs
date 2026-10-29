@@ -139,6 +139,14 @@ public sealed partial class GuestImageCache
         _scheduledReadbacks.Clear();
     }
 
+    private long _pendingDestroyBytes;
+
+    private long _destroyedImageReclaims;
+
+    public void NoteDestroyedImageReclaim() => Interlocked.Increment(ref _destroyedImageReclaims);
+
+    public bool HoldsManyDestroyedImages => (ulong)Math.Max(0, Volatile.Read(ref _pendingDestroyBytes)) >= _memoryPressureBytes;
+
     // Test seams: thresholds, the recency order and the private state the tests inspect.
     internal void SetCollectionThresholds(ulong trigger, ulong pressure, ulong critical, ulong tick)
     {

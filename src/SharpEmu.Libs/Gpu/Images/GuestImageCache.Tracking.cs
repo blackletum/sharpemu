@@ -129,7 +129,13 @@ public sealed partial class GuestImageCache
         RemoveFromIndex(imageIdentifier);
         if (_scheduler.Active)
         {
-            _scheduler.QueueCompletionAction(() => _slots.Erase(imageIdentifier));
+            var bytes = (long)image.Backing.AllocationSize;
+            Interlocked.Add(ref _pendingDestroyBytes, bytes);
+            _scheduler.QueueCompletionAction(() =>
+            {
+                _slots.Erase(imageIdentifier);
+                Interlocked.Add(ref _pendingDestroyBytes, -bytes);
+            });
         }
         else
         {

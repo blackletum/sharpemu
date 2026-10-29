@@ -35,6 +35,13 @@ internal static unsafe partial class VulkanVideoPresenter
                 _imageCache.RunGarbageCollector(endsFrame);
             }
 
+            if (_imageCache.HoldsManyDestroyedImages && _scheduler.CurrentTick > 1 && !_scheduler.InsideTickCallback)
+            {
+                _imageCache.NoteDestroyedImageReclaim();
+                _scheduler.Wait(_scheduler.CurrentTick - 1);
+                _scheduler.RunCompletedOperations();
+            }
+
             using (RenderPhaseProfile.Measure(RenderPhaseProfile.Phase.BufferCollect))
             {
                 _bufferCache.RunGarbageCollector();
