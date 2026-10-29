@@ -75,4 +75,38 @@ public static partial class GnmDriverExports
         return context.SetReturn(context.Memory.TryWrite(context[CpuRegister.Rdi], commands) ? 0 : -1);
     }
 
+    public static int DispatchDirect(CpuContext context)
+    {
+        var x = (uint)context[CpuRegister.Rdx];
+        var y = (uint)context[CpuRegister.Rcx];
+        var z = (uint)context[CpuRegister.R8];
+        var flags = (uint)context[CpuRegister.R9];
+        if (context[CpuRegister.Rdi] == 0 || (uint)context[CpuRegister.Rsi] != 9 || ((x | y | z) & 0x80000000) != 0)
+            return context.SetReturn(-1);
+        Span<uint> commands = stackalloc uint[9];
+        commands.Clear();
+        commands[0] = PacketHeader.Make(5, PacketOpcode.DispatchDirect) | 2 | (flags & 1);
+        commands[1] = x;
+        commands[2] = y;
+        commands[3] = z;
+        commands[4] = (flags & 0x18) | 1;
+        commands[5] = PacketHeader.Make(4, PacketOpcode.Nop);
+        return context.SetReturn(context.Memory.TryWrite(context[CpuRegister.Rdi], MemoryMarshal.AsBytes(commands)) ? 0 : -1);
+    }
+
+    public static int DispatchIndirect(CpuContext context)
+    {
+        if (context[CpuRegister.Rdi] == 0 || (uint)context[CpuRegister.Rsi] != 7)
+            return context.SetReturn(-1);
+        var flags = (uint)context[CpuRegister.Rcx];
+        Span<uint> commands = stackalloc uint[7];
+        commands.Clear();
+        commands[0] = PacketHeader.Make(3, PacketOpcode.DispatchIndirect) | 2 | (flags & 1);
+        commands[1] = (uint)context[CpuRegister.Rdx];
+        commands[2] = (flags & 0x18) | 1;
+        commands[3] = PacketHeader.Make(4, PacketOpcode.Nop);
+        return context.SetReturn(context.Memory.TryWrite(context[CpuRegister.Rdi], MemoryMarshal.AsBytes(commands)) ? 0 : -1);
+    }
+
+
 }
