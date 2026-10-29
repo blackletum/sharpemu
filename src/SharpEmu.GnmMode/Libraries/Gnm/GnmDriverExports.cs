@@ -8,6 +8,8 @@ namespace SharpEmu.GnmMode.Libraries.Gnm;
 
 public static partial class GnmDriverExports
 {
+    public static int DriverCaptureInProgress(CpuContext context) => context.SetReturn(0);
+
     public static int ValidateCommandBuffers(CpuContext context) =>
         context.SetReturn(unchecked((int)0x80D13FFF)); // Retail GNM has no developer validation service.
 
