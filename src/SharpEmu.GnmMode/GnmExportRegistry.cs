@@ -28,6 +28,7 @@ public static class GnmExportRegistry
                 GnmMatching2Exports.Initialize),
             new("libSceNpMatching2", "Mqp3lJ+sjy4", "sceNpMatching2Terminate", Generation.Gen4,
                 GnmMatching2Exports.Terminate),
+            new("libSceNpManager", "p-o74CnoNzY", "sceNpGetNpId", Generation.Gen4, GnmNpManagerExports.GetNpId),
             new("libSceNpTrophy", "XbkjbobZlCY", "sceNpTrophyCreateContext", Generation.Gen4, GnmTrophyExports.CreateContext),
             new("libSceNpTrophy", "q7U6tEAQf7c", "sceNpTrophyCreateHandle", Generation.Gen4, GnmTrophyExports.CreateHandle),
             new("libSceNpTrophy", "E1Wrwd07Lr8", "sceNpTrophyDestroyContext", Generation.Gen4, GnmTrophyExports.DestroyContext),
