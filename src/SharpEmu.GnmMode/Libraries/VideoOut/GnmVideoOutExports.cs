@@ -8,6 +8,7 @@ using SharpEmu.HLE;
 using SharpEmu.Libs.Gpu.Images;
 using SharpEmu.Libs.Kernel;
 using SharpEmu.Libs.VideoOut;
+using SharpEmu.GnmMode.Shaders;
 
 namespace SharpEmu.GnmMode.Libraries.VideoOut;
 
@@ -58,6 +59,7 @@ public static class GnmVideoOutExports
             _registeredSources.Clear();
             _displayTargets.Clear();
         }
+        GcnImageDescriptor.InvalidateNormalizations();
     }
 
     private static ICpuMemory UnwrapMemory(ICpuMemory memory)
@@ -154,6 +156,7 @@ public static class GnmVideoOutExports
                         _displayTargets[destination] = target;
                 }
             }
+            GcnImageDescriptor.InvalidateNormalizations();
         }
         var originalAttribute = context[CpuRegister.R8];
         if (!context.TryReadUInt32(originalAttribute, out var originalFormat))
