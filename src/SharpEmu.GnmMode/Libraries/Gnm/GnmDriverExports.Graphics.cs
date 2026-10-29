@@ -18,6 +18,10 @@ public static partial class GnmDriverExports
 {
     public static int SetVsShader(CpuContext context) => SetGraphicsShader(context, GraphicsStage.Vs);
     public static int SetPsShader(CpuContext context) => SetGraphicsShader(context, GraphicsStage.Ps);
+    public static int SetPsShader350(CpuContext context) => SetGraphicsShader(context, GraphicsStage.Ps, pixel350: true);
+    public static int UpdateVsShader(CpuContext context) => SetGraphicsShader(context, GraphicsStage.Vs, update: true);
+    public static int UpdatePsShader(CpuContext context) => SetGraphicsShader(context, GraphicsStage.Ps, update: true);
+    public static int UpdatePsShader350(CpuContext context) => SetGraphicsShader(context, GraphicsStage.Ps, pixel350: true, update: true);
     public static int SetLsShader(CpuContext context) => SetGraphicsShader(context, GraphicsStage.Ls);
     public static int SetHsShader(CpuContext context) => SetGraphicsShader(context, GraphicsStage.Hs);
     public static int SetEsShader(CpuContext context) => SetGraphicsShader(context, GraphicsStage.Es);
@@ -25,7 +29,7 @@ public static partial class GnmDriverExports
 
     private enum GraphicsStage { Vs, Ps, Ls, Hs, Es, Gs }
 
-    private static int SetGraphicsShader(CpuContext context, GraphicsStage stage)
+    private static int SetGraphicsShader(CpuContext context, GraphicsStage stage, bool pixel350 = false, bool update = false)
     {
         var (length, count) = stage switch
         {
@@ -45,7 +49,16 @@ public static partial class GnmDriverExports
         registers.Clear();
         if (pointer != 0 && !KernelMemoryCompatExports.TryReadGuestStructure(context, pointer, MemoryMarshal.AsBytes(registers[..count])))
             return ShaderBindFailure(context, stage, "register-read");
+        if (stage == GraphicsStage.Ps && pixel350 && pointer == 0)
+            registers[11] = 0xF;
         if (registers[1] != 0 && !AcceptsHighShaderAddress(context, registers, stage)) return ShaderBindFailure(context, stage, "address");
+        return WriteGraphicsShader(context, stage, registers, argument, length, pixel350, update, pointer != 0);
+    }
+
+    private static int WriteGraphicsShader(CpuContext context, GraphicsStage stage, Span<uint> registers, uint argument,
+        int length, bool pixel350 = false, bool update = false, bool bindPixel = false)
+    {
+        var modified = stage is GraphicsStage.Vs or GraphicsStage.Ls or GraphicsStage.Es;
         if (modified && argument != 0)
         {
             var kept = stage == GraphicsStage.Ls && (argument & 0xFFFFFC3F) == 0 ? 0xFFFFFC3Fu : 0xFCFFFC3Fu;
@@ -55,28 +68,31 @@ public static partial class GnmDriverExports
         commands.Clear();
         var cursor = 0;
         var sh = PacketOpcode.SetShaderRegister;
-        var cx = PacketOpcode.SetContextRegister;
+        var cx = update ? PacketOpcode.Nop : PacketOpcode.SetContextRegister;
+        var contextTag = update ? 0xC01E0000u : 0u;
         switch (stage)
         {
             case GraphicsStage.Vs:
                 AppendRegister(commands, ref cursor, sh, 0x48, registers[..2]);
                 AppendRegister(commands, ref cursor, sh, 0x4A, registers.Slice(2, 2));
-                AppendRegister(commands, ref cursor, cx, 0x207, registers.Slice(6, 1));
-                AppendRegister(commands, ref cursor, cx, 0x1B1, registers.Slice(4, 1));
-                AppendRegister(commands, ref cursor, cx, 0x1C3, registers.Slice(5, 1));
+                AppendRegister(commands, ref cursor, cx, contextTag | 0x207, registers.Slice(6, 1));
+                AppendRegister(commands, ref cursor, cx, contextTag | 0x1B1, registers.Slice(4, 1));
+                AppendRegister(commands, ref cursor, cx, contextTag | 0x1C3, registers.Slice(5, 1));
                 break;
             case GraphicsStage.Ps:
                 AppendRegister(commands, ref cursor, sh, 8, registers[..2]);
-                if (pointer != 0)
+                if (bindPixel)
                 {
                     AppendRegister(commands, ref cursor, sh, 10, registers.Slice(2, 2));
-                    AppendRegister(commands, ref cursor, cx, 0x1C4, registers.Slice(4, 2));
-                    AppendRegister(commands, ref cursor, cx, 0x1B3, registers.Slice(6, 2));
-                    AppendRegister(commands, ref cursor, cx, 0x1B6, registers.Slice(8, 1));
-                    AppendRegister(commands, ref cursor, cx, 0x1B8, registers.Slice(9, 1));
-                    AppendRegister(commands, ref cursor, cx, 0x8F, registers.Slice(11, 1));
+                    AppendRegister(commands, ref cursor, cx, contextTag | 0x1C4, registers.Slice(4, 2));
+                    AppendRegister(commands, ref cursor, cx, contextTag | 0x1B3, registers.Slice(6, 2));
+                    AppendRegister(commands, ref cursor, cx, contextTag | 0x1B6, registers.Slice(8, 1));
+                    AppendRegister(commands, ref cursor, cx, contextTag | 0x1B8, registers.Slice(9, 1));
                 }
-                AppendRegister(commands, ref cursor, cx, 0x203, registers.Slice(10, 1));
+                AppendRegister(commands, ref cursor, cx, contextTag | 0x203, registers.Slice(10, 1));
+                if (bindPixel || pixel350)
+                    AppendRegister(commands, ref cursor, bindPixel ? cx : PacketOpcode.SetContextRegister,
+                        (bindPixel ? contextTag : 0) | 0x8F, registers.Slice(11, 1));
                 break;
             case GraphicsStage.Ls:
                 AppendRegister(commands, ref cursor, sh, 0x148, registers[..2]);
