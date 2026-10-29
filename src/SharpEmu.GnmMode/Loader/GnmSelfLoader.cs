@@ -52,6 +52,7 @@ public sealed partial class GnmSelfLoader : ISelfLoader
             Gpu.GnmCommandPackets.Reset(memory);
             Libraries.Gnm.GnmDriverExports.ResetComputeMappings(memory);
             Libraries.Np.GnmMatching2Exports.Reset();
+            Libraries.Np.GnmNpTusExports.Reset();
             GuestTlsTemplate.Reset();
             _nextTlsModule = 1;
             _imageIndex = 0;
