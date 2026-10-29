@@ -223,7 +223,8 @@ public partial class MainWindow : Window
         string ConsoleType,
         string ConsoleLanguage,
         EffectiveLaunchSettings Settings,
-        SharpEmuRuntimeOptions RuntimeOptions);
+        SharpEmuRuntimeOptions RuntimeOptions,
+        GnmLoadExecRequest? LoadExec = null);
 
     public MainWindow()
     {
@@ -1348,6 +1349,7 @@ public partial class MainWindow : Window
         RunShutdownStep("Discord Rich Presence", () => _discord?.Dispose());
         RunShutdownStep("console window", () => _consoleWindow?.Close());
         RunShutdownStep("emulator process", () => _emulator?.Dispose());
+        RunShutdownStep("executable session", DisposeLoadExecSession);
         RunShutdownStep("console mirror", () => _consoleMirror?.Dispose());
         RunShutdownStep("pending console output", FlushAllPendingConsoleLines);
         RunShutdownStep("file log", DropFileLog);
@@ -3321,12 +3323,15 @@ public partial class MainWindow : Window
 
     private void OnEmulatorExited(int exitCode)
     {
+        if (TryRestartGnmSession(exitCode))
+            return;
         FlushPendingConsoleLines();
         FlushAllPendingConsoleLines();
         _isRunning = false;
         _isStopping = false;
         _emulator?.Dispose();
         _emulator = null;
+        DisposeLoadExecSession();
         _pendingLaunch = null;
         UpdateEmbeddedConsoleVisibility();
 
@@ -3377,6 +3382,12 @@ public partial class MainWindow : Window
         try
         {
             var arguments = BuildEmulatorArguments(launch);
+            if (GnmRuntime.UsesCompatibilityMode(launch.EbootPath))
+            {
+                _loadExecSession = GnmLoadExecSession.Create(launch.EbootPath, launch.LoadExec);
+                arguments.Add(GnmLoadExecSession.ArgumentPrefix + _loadExecSession.FilePath);
+            }
+            _activeLaunch = launch;
             _emulator = process;
             _pendingLaunch = null;
             _runningEbootPath = launch.EbootPath;
