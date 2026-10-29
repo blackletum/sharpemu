@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 using SharpEmu.HLE;
+using SharpEmu.Libs.UserService;
+using SharpEmu.Libs.SystemService;
+using SharpEmu.Libs.Codec;
 using SharpEmu.GnmMode.Libraries.Ajm;
 using SharpEmu.GnmMode.Libraries.AppContent;
 using SharpEmu.GnmMode.Libraries.Gnm;
@@ -17,6 +20,8 @@ public static class GnmExportRegistry
     {
         ExportedFunction[] overrides =
         [
+            new("libKernel", "IafI2PxcPnQ", "scePthreadMutexTimedlock", Generation.Gen4,
+                SharpEmu.Libs.Kernel.KernelPthreadCompatExports.PthreadMutexRelativeTimedlock),
             new("libSceNpTrophy", "XbkjbobZlCY", "sceNpTrophyCreateContext", Generation.Gen4, GnmTrophyExports.CreateContext),
             new("libSceNpTrophy", "q7U6tEAQf7c", "sceNpTrophyCreateHandle", Generation.Gen4, GnmTrophyExports.CreateHandle),
             new("libSceNpTrophy", "E1Wrwd07Lr8", "sceNpTrophyDestroyContext", Generation.Gen4, GnmTrophyExports.DestroyContext),
