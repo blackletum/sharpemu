@@ -87,6 +87,9 @@ internal static class GnmCommandPackets
         handlers[PacketOpcode.SetShaderRegister] = SetShaderRegisters;
         handlers[PacketOpcode.IndirectBuffer] = IndirectBuffer;
         handlers[PacketOpcode.DispatchDirect] = DispatchDirect;
+        handlers[PacketOpcode.DispatchIndirect] = DispatchIndirect;
+        handlers[PacketOpcode.DrawIndirect] = DrawIndirect;
+        handlers[PacketOpcode.DrawIndexOffset2] = DrawIndexOffset;
         handlers[PacketOpcode.WaitOnCeCounter] = WaitOnCeCounter;
         handlers[PacketOpcode.IncrementDeCounter] = IncrementDeCounter;
         handlers[PacketOpcode.SetBase] = PacketDispatchTable.Opcodes[PacketOpcode.SetBase];
@@ -148,6 +151,32 @@ internal static class GnmCommandPackets
         if (_memory is { } memory && GnmScatterCopy.TryRun(interpreter, in normalized, payload, memory, dispatch))
             return packet.Length - 1;
         return dispatch(interpreter, in normalized, payload);
+    }
+
+    private static uint DispatchIndirect(GpuCommandInterpreter interpreter, in PacketContext packet, ReadOnlySpan<uint> payload)
+    {
+        var normalized = packet with { Header = packet.Header & ~3u };
+        return PacketDispatchTable.Opcodes[PacketOpcode.DispatchIndirect]!(interpreter, in normalized, payload);
+    }
+
+    private static uint DrawIndirect(GpuCommandInterpreter interpreter, in PacketContext packet, ReadOnlySpan<uint> payload)
+    {
+        var normalized = packet with { Header = packet.Header & ~3u };
+        var handler = PacketDispatchTable.Opcodes[PacketOpcode.DrawIndirect]!;
+        if (packet.Length != 5)
+            return handler(interpreter, in normalized, payload);
+        Span<uint> fields = stackalloc uint[4];
+        payload[..4].CopyTo(fields);
+        for (var index = 1; index <= 2; index++)
+            if (fields[index] is >= 0x4C and < 0x5C)
+                fields[index] += 0x40;
+        return handler(interpreter, in normalized, fields);
+    }
+
+    private static uint DrawIndexOffset(GpuCommandInterpreter interpreter, in PacketContext packet, ReadOnlySpan<uint> payload)
+    {
+        var normalized = packet with { Header = packet.Header & ~3u };
+        return PacketDispatchTable.Opcodes[PacketOpcode.DrawIndexOffset2]!(interpreter, in normalized, payload);
     }
 
     private static uint IndirectBuffer(GpuCommandInterpreter interpreter, in PacketContext packet, ReadOnlySpan<uint> payload)
@@ -333,7 +362,7 @@ internal static class GnmCommandPackets
         for (var index = 1; index < payload.Length; index++)
         {
             var fieldOffset = offset + (uint)index - 1;
-            if (fieldOffset is >= 0x318 and < 0x390 or 0x08E or 0x16 or 0x102 or 0x2A8 or 0x2A9 or ShaderStages ||
+            if (fieldOffset is >= 0x318 and < 0x390 or 0x08E or 0x16 or 0x102 or 0x2A5 or 0x2A8 or 0x2A9 or ShaderStages ||
                 IsUnmodeledContextRegister(fieldOffset))
             {
                 hasLegacyFields = true;
@@ -442,10 +471,9 @@ internal static class GnmCommandPackets
                 continue;
             }
 
-            if (offset == 0x102)
+            if (offset is 0x102 or 0x2A5)
             {
-                // GCN VGT_INDX_OFFSET moved to RDNA2 GE_INDEX_OFFSET.
-                fields[0] = UserConfigRegisterOffset.GeIndexOffset;
+                fields[0] = offset == 0x102 ? UserConfigRegisterOffset.GeIndexOffset : UserConfigRegisterOffset.GeMultiPrimIbResetEn;
                 fields[1] = payload[index];
                 var userPacket = normalized with { Header = PacketHeader.Make(3, PacketOpcode.SetUserConfigRegister) };
                 _ = PacketDispatchTable.Opcodes[PacketOpcode.SetUserConfigRegister]!(interpreter, in userPacket, fields);
