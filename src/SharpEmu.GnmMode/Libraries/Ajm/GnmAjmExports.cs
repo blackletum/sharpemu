@@ -13,7 +13,7 @@ namespace SharpEmu.GnmMode.Libraries.Ajm;
 /// Orbis AJM's raw-buffer ABI. The shared AJM backend handles batch-info jobs;
 /// PS4 titles build the serialized command stream using pointer-returning helpers.
 /// </summary>
-public static class GnmAjmExports
+public static partial class GnmAjmExports
 {
     private const int InvalidParameter = unchecked((int)0x80930005);
     private const int MalformedBatch = unchecked((int)0x80930011);
@@ -42,10 +42,11 @@ public static class GnmAjmExports
 
     private readonly record struct Buffer(ulong Address, ulong Size);
 
-    private sealed class InstanceState(uint codec, bool gaplessLoop)
+    private sealed class InstanceState(uint codec, bool gaplessLoop, bool parseRiff)
     {
         public uint Codec { get; } = codec;
         public bool GaplessLoop { get; } = gaplessLoop;
+        public bool ParseRiff { get; } = parseRiff;
         public Atrac9Config? Config { get; set; }
         public bool GaplessLimited { get; set; }
         public ulong DecodedBase { get; set; }
@@ -62,7 +63,7 @@ public static class GnmAjmExports
         var result = AjmExports.AjmInstanceCreate(ctx);
         if (result == 0 && ctx.TryReadUInt32(output, out var instance))
         {
-            Instances[(context, instance)] = new InstanceState(codec, (flags & InstanceGaplessLoop) != 0);
+            Instances[(context, instance)] = new InstanceState(codec, (flags & InstanceGaplessLoop) != 0, (flags & (1UL << 32)) != 0);
             Trace($"instance_create context={context} codec={codec} flags=0x{flags:X} instance=0x{instance:X8} gapless_loop={(flags & InstanceGaplessLoop) != 0}");
         }
         return result;
@@ -269,6 +270,23 @@ public static class GnmAjmExports
 
         if (inputs.Count > MaxBuffers || outputs.Count > MaxBuffers)
             return false;
+        if (state is { ParseRiff: true, Codec: AjmExports.Atrac9CodecType })
+        {
+            var initialized = InitializeRiff(ctx, scratch, state, inputs);
+            if (initialized > 0)
+            {
+                var layout = AjmExports.GetRunSidebandLayout(flags, controlOutput.Size);
+                if (controlOutput.Address != 0 && controlOutput.Size >= AjmExports.AjmSidebandResultBytes)
+                {
+                    Span<byte> result = stackalloc byte[layout.End];
+                    result.Clear();
+                    BinaryPrimitives.WriteInt32LittleEndian(result, initialized);
+                    if (!ctx.Memory.TryWrite(controlOutput.Address, result))
+                        return false;
+                }
+                return true;
+            }
+        }
         call[CpuRegister.Rdx] = flags;
         var split = inputs.Count != 1 || outputs.Count != 1;
         if (split)
@@ -532,6 +550,8 @@ public static class GnmAjmExports
         }
 
         public ulong Address(int offset) => SyntheticBase + (ulong)offset;
+
+        public void WriteBytes(int offset, ReadOnlySpan<byte> bytes) => bytes.CopyTo(_data.AsSpan(offset));
 
         public int Call(Func<CpuContext, int> function, int resultOffset)
         {
