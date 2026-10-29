@@ -193,10 +193,16 @@ internal static partial class Program
     {
         Console.Error.WriteLine($"[DEBUG] SharpEmu starting with {args.Length} args");
 
+        var sessionArgument = args.SingleOrDefault(argument => argument.StartsWith(GnmLoadExecSession.ArgumentPrefix, StringComparison.Ordinal));
+        if (!isMitigatedChild && sessionArgument is null && TryRunGnmSupervisor(args, out var supervisedExitCode))
+            return supervisedExitCode;
         if (!isMitigatedChild && TryRunMitigatedChild(args, out var childExitCode))
         {
             return childExitCode;
         }
+
+        if (sessionArgument is not null)
+            args = args.Where(argument => !argument.StartsWith(GnmLoadExecSession.ArgumentPrefix, StringComparison.Ordinal)).ToArray();
 
         if (!TryParseArguments(
                 args,
@@ -267,8 +273,13 @@ internal static partial class Program
         try
         {
             var gameLoader = GnmRuntime.CreateLoader(ebootPath);
+            using var loadExecSession = sessionArgument is null ? null :
+                GnmLoadExecSession.Open(sessionArgument[GnmLoadExecSession.ArgumentPrefix.Length..], ebootPath);
             using var runtime = gameLoader is not null
-                ? GnmRuntime.CreateDefault(runtimeOptions, gameLoader)
+                ? GnmRuntime.CreateDefault(runtimeOptions with
+                {
+                    AdoptStartupAddressReservations = OperatingSystem.IsWindows() && isMitigatedChild,
+                }, gameLoader, loadExecSession)
                 : SharpEmuRuntime.CreateDefault(runtimeOptions with
                 {
                     AdoptStartupAddressReservations = OperatingSystem.IsWindows() && isMitigatedChild,
@@ -798,9 +809,13 @@ internal static partial class Program
                     Directory.CreateDirectory(directory);
                 }
 
+                var sessionArgument = Environment.GetCommandLineArgs()
+                    .FirstOrDefault(argument => argument.StartsWith(GnmLoadExecSession.ArgumentPrefix, StringComparison.Ordinal));
+                var append = sessionArgument is not null &&
+                    GnmLoadExecSession.IsRestart(sessionArgument[GnmLoadExecSession.ArgumentPrefix.Length..]);
                 var stream = new FileStream(
                     path,
-                    FileMode.Create,
+                    append ? FileMode.Append : FileMode.Create,
                     FileAccess.Write,
                     FileShare.ReadWrite,
                     bufferSize: 4096,
