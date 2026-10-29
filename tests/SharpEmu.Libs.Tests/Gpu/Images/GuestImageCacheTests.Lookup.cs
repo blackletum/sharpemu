@@ -104,6 +104,36 @@ public sealed partial class GuestImageCacheTests
     }
 
     [Fact]
+    public void FindImage_AnImageFilledFromGuestMemoryIsParkedAndReusedWithTheNewerBytes()
+    {
+        if (!GatePrerequisites.Ready(_vulkan)) return;
+        using var harness = new CacheHarness(_vulkan);
+        const uint width = 128;
+        var address = harness.MapBacked(0x20000, ReadWrite);
+        harness.Write(address, Bytes(Enumerable.Repeat(0x11111111u, (int)(width * width)).ToArray()));
+        var filled = LinearRequest(address, width * width * 4, Format.R32Uint, GuestPixelFormat.Bits32UInt, GuestImageType.Color2D,
+            new Extent3D(width, width, 1), 1, 4, 1);
+        var filledId = harness.Acquire(ref filled);
+        Assert.False(harness.Image(filledId).IsGpuModified);
+        AgeBeyondTheRemovalWindow(harness, filledId, endFrame: true);
+
+        var inside = LinearRequest(address + 0x8000, 0x4000, Format.R32Uint, GuestPixelFormat.Bits32UInt, GuestImageType.Color2D,
+            new Extent3D(64, 64, 1), 1, 4, 1);
+        harness.Acquire(ref inside);
+        Assert.True(harness.Image(filledId).Parked);
+
+        harness.Write(address, Bytes(Enumerable.Repeat(0x22222222u, (int)(width * width)).ToArray()));
+        harness.Images.InvalidateMemory(address, width * width * 4);
+        var again = LinearRequest(address, width * width * 4, Format.R32Uint, GuestPixelFormat.Bits32UInt, GuestImageType.Color2D,
+            new Extent3D(width, width, 1), 1, 4, 1);
+        Assert.Equal(filledId, harness.Acquire(ref again));
+        Assert.False(harness.Image(filledId).Parked);
+        Assert.Equal(Bytes(Enumerable.Repeat(0x22222222u, (int)(width * width)).ToArray()), harness.ReadImageBytes(harness.Image(filledId)));
+
+        harness.Shutdown();
+    }
+
+    [Fact]
     public void TryClearImageFromBuffer_AClearOfOneLayerClearsOnlyThatLayer()
     {
         if (!GatePrerequisites.Ready(_vulkan)) return;

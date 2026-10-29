@@ -152,8 +152,7 @@ public sealed partial class GuestImageCache
     private void ParkOrReleaseImage(ResourceSlotIdentifier imageIdentifier)
     {
         var image = _slots[imageIdentifier];
-        var park = !image.Parked && image.IsGpuModified && !image.IsBufferModified && !image.IsCpuDirty &&
-            !image.DepthOwner.IsValid && image.Description.Samples <= 1;
+        var park = !image.Parked && !image.DepthOwner.IsValid && image.Description.Samples <= 1;
         if (!park)
         {
             Interlocked.Increment(ref _parkReleases);
@@ -182,11 +181,6 @@ public sealed partial class GuestImageCache
 
             if (!HasSameBacking(image.Description, requested, exactFormat: true) || image.Description.Resources != requested.Resources ||
                 image.Description.Type != requested.Type)
-            {
-                continue;
-            }
-
-            if (image.IsCpuDirty || image.IsBufferModified)
             {
                 continue;
             }
