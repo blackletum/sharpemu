@@ -222,11 +222,13 @@ public sealed partial class GnmSelfLoader : ISelfLoader
     {
         var path = string.IsNullOrEmpty(root) ? "sce_sys/param.sfo" : $"{root}/sce_sys/param.sfo";
         Libraries.AppContent.GnmAppContentExports.SetUserDefinedParams(new int[GnmParamSfo.UserDefinedParamCount]);
+        Libraries.Kernel.GnmKernelExports.SetCpuMode(0);
         if (fs?.TryReadAllBytes(path, out var bytes) != true)
             return default;
 
         var info = GnmParamSfo.Read(bytes);
         Libraries.AppContent.GnmAppContentExports.SetUserDefinedParams(GnmParamSfo.ReadUserDefinedParams(bytes));
+        Libraries.Kernel.GnmKernelExports.SetCpuMode(GnmParamSfo.ReadCpuMode(bytes));
         Console.WriteLine($"[LOADER] Loading param.sfo at {path}");
         Console.WriteLine($"[LOADER] Title: {info.Title ?? "(unknown)"}, " +
             $"TitleId: {info.TitleId ?? "(unknown)"}, " +

@@ -53,6 +53,24 @@ public static class GnmParamSfo
         return values;
     }
 
+    public static int ReadCpuMode(ReadOnlySpan<byte> data)
+    {
+        foreach (var entry in Entries(data))
+        {
+            if (entry.Key != "ATTRIBUTE" || entry.Format != 0x404 || entry.Length != sizeof(uint) ||
+                entry.Capacity < sizeof(uint) || entry.Offset > (ulong)data.Length - sizeof(uint))
+                continue;
+            var attributes = BinaryPrimitives.ReadUInt32LittleEndian(data[(int)entry.Offset..]);
+            return ((attributes >> 15) & 3) switch
+            {
+                3 => 2,
+                2 => 5,
+                _ => 0,
+            };
+        }
+        return 0;
+    }
+
     private static List<Entry> Entries(ReadOnlySpan<byte> data)
     {
         if (data.Length < 20 || !data[..4].SequenceEqual("\0PSF"u8))

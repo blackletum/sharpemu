@@ -8,6 +8,7 @@ using SharpEmu.Libs.Codec;
 using SharpEmu.GnmMode.Libraries.Ajm;
 using SharpEmu.GnmMode.Libraries.AppContent;
 using SharpEmu.GnmMode.Libraries.Gnm;
+using SharpEmu.GnmMode.Libraries.Kernel;
 using SharpEmu.GnmMode.Libraries.Np;
 using SharpEmu.GnmMode.Libraries.SaveData;
 using SharpEmu.GnmMode.Libraries.VideoOut;
@@ -20,6 +21,7 @@ public static class GnmExportRegistry
     {
         ExportedFunction[] overrides =
         [
+            new("libKernel", "VOx8NGmHXTs", "sceKernelGetCpumode", Generation.Gen4, GnmKernelExports.GetCpuMode),
             new("libKernel", "IafI2PxcPnQ", "scePthreadMutexTimedlock", Generation.Gen4,
                 SharpEmu.Libs.Kernel.KernelPthreadCompatExports.PthreadMutexRelativeTimedlock),
             new("libSceNpTrophy", "XbkjbobZlCY", "sceNpTrophyCreateContext", Generation.Gen4, GnmTrophyExports.CreateContext),
