@@ -7,6 +7,7 @@ using SharpEmu.Libs.Gpu.Images;
 using SharpEmu.Libs.Gpu.GpuCommands;
 using SharpEmu.ShaderCompiler;
 using SharpEmu.ShaderCompiler.Resources;
+using SharpEmu.GnmMode.Libraries.VideoOut;
 
 namespace SharpEmu.GnmMode.Shaders;
 
@@ -330,10 +331,18 @@ public static class GcnImageDescriptor
     private static bool IsColorTarget(ReadOnlySpan<uint> words, out ColorLayout target)
     {
         var addressBase = ((ulong)words[0] | ((ulong)(words[1] & 63) << 32)) << 8;
-        return ColorTargets.TryGetValue(addressBase, out target) &&
+        if (ColorTargets.TryGetValue(addressBase, out target) &&
             words[3] >> 28 == 9 && ((words[3] >> 20) & 31) == target.GcnTile &&
             ((words[4] >> 13) & 0x3FFF) + 1 == target.Pitch &&
-            (words[2] & 0x3FFF) < target.Pitch && ((words[2] >> 14) & 0x3FFF) < target.Height;
+            (words[2] & 0x3FFF) < target.Pitch && ((words[2] >> 14) & 0x3FFF) < target.Height)
+            return true;
+        var pitch = ((words[4] >> 13) & 0x3FFF) + 1;
+        var height = ((words[2] >> 14) & 0x3FFF) + 1;
+        if (words[3] >> 28 != 9 || ((words[3] >> 20) & 31) != 10 || (words[2] & 0x3FFF) >= pitch ||
+            !GnmVideoOutExports.TryGetDisplayTarget(addressBase, pitch, height, out _, out var hostAddress, out var displayHeight))
+            return false;
+        target = new ColorLayout(pitch, height, 10, GuestTileMode.RenderTarget, hostAddress, displayHeight, default);
+        return true;
     }
 
     private static bool IsUntraced(ReadOnlySpan<uint> original, ulong shaderHash) =>
@@ -383,7 +392,8 @@ public static class GcnImageDescriptor
         {
             Console.Error.WriteLine($"[GNMMODE][WARN] GCN T# -> AGC stage={stage} shader=0x{shaderHash:X16} source={source} " +
                 $"outcome={outcome} format={(w1 >> 20) & 63}/{(w1 >> 26) & 15} " +
-                $"extent={(w2 & 0x3FFF) + 1}x{((w2 >> 14) & 0x3FFF) + 1} tile={gcnTile} type={w3 >> 28}.");
+                $"extent={(w2 & 0x3FFF) + 1}x{((w2 >> 14) & 0x3FFF) + 1} tile={gcnTile} type={w3 >> 28} " +
+                $"raw=[{string.Join(" ", original.ToArray().Select(word => $"{word:X8}"))}].");
             return result;
         }
         var level = original.Length > 3 ? $"{(w3 >> 12) & 15}-{(w3 >> 16) & 15}" : "?";
