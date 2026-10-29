@@ -7,6 +7,7 @@ using SharpEmu.Libs.SystemService;
 using SharpEmu.Libs.Codec;
 using SharpEmu.GnmMode.Libraries.Ajm;
 using SharpEmu.GnmMode.Libraries.AppContent;
+using SharpEmu.GnmMode.Libraries.Codec;
 using SharpEmu.GnmMode.Libraries.Gnm;
 using SharpEmu.GnmMode.Libraries.Kernel;
 using SharpEmu.GnmMode.Libraries.Np;
@@ -82,6 +83,26 @@ public static class GnmExportRegistry
                 GnmAjmExports.BatchJobInlineBuffer),
             new("libSceAjm", "fFFkk0xfGWs", "sceAjmBatchStartBuffer", Generation.Gen4,
                 GnmAjmExports.BatchStartBuffer),
+            new("libSceVideodec2", "RnDibcGCPKw", "sceVideodec2QueryComputeMemoryInfo", Generation.Gen4,
+                Videodec2Exports.Videodec2QueryComputeMemoryInfo),
+            new("libSceVideodec2", "eD+X2SmxUt4", "sceVideodec2AllocateComputeQueue", Generation.Gen4,
+                Videodec2Exports.Videodec2AllocateComputeQueue),
+            new("libSceVideodec2", "UvtA3FAiF4Y", "sceVideodec2ReleaseComputeQueue", Generation.Gen4,
+                Videodec2Exports.Videodec2ReleaseComputeQueue),
+            new("libSceVideodec2", "qqMCwlULR+E", "sceVideodec2QueryDecoderMemoryInfo", Generation.Gen4,
+                Videodec2Exports.Videodec2QueryDecoderMemoryInfo),
+            new("libSceVideodec2", "CNNRoRYd8XI", "sceVideodec2CreateDecoder", Generation.Gen4,
+                Videodec2Exports.Videodec2CreateDecoder),
+            new("libSceVideodec2", "852F5+q6+iM", "sceVideodec2Decode", Generation.Gen4,
+                GnmVideodec2Exports.Decode),
+            new("libSceVideodec2", "l1hXwscLuCY", "sceVideodec2Flush", Generation.Gen4,
+                GnmVideodec2Exports.Flush),
+            new("libSceVideodec2", "wJXikG6QFN8", "sceVideodec2Reset", Generation.Gen4,
+                Videodec2Exports.Videodec2Reset),
+            new("libSceVideodec2", "jwImxXRGSKA", "sceVideodec2DeleteDecoder", Generation.Gen4,
+                Videodec2Exports.Videodec2DeleteDecoder),
+            new("libSceVideodec2", "NtXRa3dRzU0", "sceVideodec2GetPictureInfo", Generation.Gen4,
+                GnmVideodec2Exports.GetPictureInfo),
             new("libSceVideoOut", "SbU3dwp80lQ", "sceVideoOutGetFlipStatus", Generation.Gen4,
                 GnmVideoOutExports.GetFlipStatus),
             new("libSceVideoOut", "CBiu4mCE1DA", "sceVideoOutSetFlipRate", Generation.Gen4,
