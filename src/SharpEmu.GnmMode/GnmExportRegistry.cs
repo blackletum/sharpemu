@@ -114,6 +114,8 @@ public static class GnmExportRegistry
             new("libSceVideoOut", "w3BY+tAEiQY", "sceVideoOutRegisterBuffers", Generation.Gen4,
                 GnmVideoOutExports.RegisterBuffers),
             new("libSceGnmDriver", "gAhCn6UiU4Y", "sceGnmSetVsShader", Generation.Gen4, GnmDriverExports.SetVsShader),
+            new("libSceGnmDriver", "+AFvOEXrKJk", "sceGnmSetEmbeddedVsShader", Generation.Gen4, GnmDriverExports.SetEmbeddedVsShader),
+            new("libSceGnmDriver", "X9Omw9dwv5M", "sceGnmSetEmbeddedPsShader", Generation.Gen4, GnmDriverExports.SetEmbeddedPsShader),
             new("libSceGnmDriver", "bQVd5YzCal0", "sceGnmSetPsShader", Generation.Gen4, GnmDriverExports.SetPsShader),
             new("libSceGnmDriver", "5uFKckiJYRM", "sceGnmSetPsShader350", Generation.Gen4, GnmDriverExports.SetPsShader350),
             new("libSceGnmDriver", "V31V01UiScY", "sceGnmUpdateVsShader", Generation.Gen4, GnmDriverExports.UpdateVsShader),
