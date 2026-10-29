@@ -327,14 +327,18 @@ internal static class GnmCommandPackets
         var dataSource = (payload[2] >> 29) & 7u;
         var classicBottomOfPipe = (control & 0x3Fu) == 0x28 &&
             ((control >> 8) & 7u) == 5 &&
-            ((control >> 12) & 0x3Fu) == 0 &&
-            dataSource is 1 or 2 or 4 &&
-            ((payload[2] >> 24) & 7u) == 0;
-        if (!classicBottomOfPipe && cachePolicy is not (1 or 2))
+            (dataSource is 2 or 4 || dataSource == 1 && ((control >> 12) & 0x3Fu) == 0);
+        if (!classicBottomOfPipe && cachePolicy is not (1 or 2) && dataSource != 3)
             return agcHandler(interpreter, in normalized, payload);
 
         Span<uint> fields = stackalloc uint[5];
         payload.CopyTo(fields);
+        if (dataSource == 3)
+        {
+            fields[2] = (fields[2] & ~(7u << 29)) | (4u << 29);
+            if ((control & 0x3Fu) == 0x28 && ((control >> 8) & 7u) == 5)
+                fields[0] &= ~(7u << 8);
+        }
         // PS4 EOP labels can request stream/bypass cache policy; Vulkan owns cache eviction.
         if (cachePolicy is 1 or 2)
             fields[0] &= ~(3u << 25);
