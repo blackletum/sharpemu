@@ -308,6 +308,39 @@ public static class GnmVideoOutExports
         return VideoOutExports.VideoOutGetFlipStatus(proxy);
     }
 
+    public static int GetResolutionStatus(CpuContext context)
+    {
+        var proxy = new CpuContext(
+            new ResolutionStatusMemory(context.Memory, context[CpuRegister.Rsi]), context.TargetGeneration);
+        proxy[CpuRegister.Rdi] = context[CpuRegister.Rdi];
+        proxy[CpuRegister.Rsi] = context[CpuRegister.Rsi];
+        var result = VideoOutExports.VideoOutGetOutputStatus(proxy);
+        return context.SetReturn(result == (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT
+            ? unchecked((int)0x80290002) : result);
+    }
+
+    private sealed class ResolutionStatusMemory(ICpuMemory inner, ulong destination) : ICpuMemory
+    {
+        public bool TryRead(ulong address, Span<byte> data) => inner.TryRead(address, data);
+
+        public bool TryWrite(ulong address, ReadOnlySpan<byte> data)
+        {
+            if (address != destination || data.Length != 0x30)
+                return inner.TryWrite(address, data);
+            var uhd = BinaryPrimitives.ReadUInt32LittleEndian(data) == 2;
+            var width = uhd ? 3840u : 1920u;
+            var height = uhd ? 2160u : 1080u;
+            Span<byte> status = stackalloc byte[0x30];
+            status.Clear();
+            BinaryPrimitives.WriteUInt32LittleEndian(status, width);
+            BinaryPrimitives.WriteUInt32LittleEndian(status[4..], height);
+            BinaryPrimitives.WriteUInt32LittleEndian(status[8..], width);
+            BinaryPrimitives.WriteUInt32LittleEndian(status[12..], height);
+            data[8..16].CopyTo(status[16..24]);
+            return inner.TryWrite(address, status);
+        }
+    }
+
     private sealed class FlipStatusMemory(ICpuMemory inner, ulong destination) : ICpuMemory
     {
         public bool TryRead(ulong address, Span<byte> data) => inner.TryRead(address, data);

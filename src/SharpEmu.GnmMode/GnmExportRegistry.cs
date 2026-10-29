@@ -110,6 +110,8 @@ public static class GnmExportRegistry
                 GnmVideodec2Exports.GetPictureInfo),
             new("libSceVideoOut", "SbU3dwp80lQ", "sceVideoOutGetFlipStatus", Generation.Gen4,
                 GnmVideoOutExports.GetFlipStatus),
+            new("libSceVideoOut", "6kPnj51T62Y", "sceVideoOutGetResolutionStatus", Generation.Gen4,
+                GnmVideoOutExports.GetResolutionStatus),
             new("libSceVideoOut", "CBiu4mCE1DA", "sceVideoOutSetFlipRate", Generation.Gen4,
                 GnmVideoOutExports.SetFlipRate),
             new("libSceVideoOut", "w3BY+tAEiQY", "sceVideoOutRegisterBuffers", Generation.Gen4,
