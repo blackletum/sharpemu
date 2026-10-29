@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 using System.Buffers.Binary;
+using System.Runtime.InteropServices;
 using SharpEmu.HLE;
 using SharpEmu.Libs.Gpu.GpuCommands;
 using SharpEmu.Libs.Kernel;
@@ -15,8 +16,11 @@ public static partial class GnmDriverExports
 
     public static int DispatchInitDefaultHardwareState(CpuContext context) => WriteDefaultState(context, compute: true);
     public static int DrawInitDefaultHardwareState200(CpuContext context) => WriteDefaultState(context, compute: false);
+    public static int DrawInitDefaultHardwareState350(CpuContext context) => WriteDefaultState(context, compute: false);
+    public static int DrawInitToDefaultContextState400(CpuContext context) => (uint)context[CpuRegister.Rsi] == 0x100
+        ? WriteDefaultState(context, compute: false, contextOnly: true) : context.SetReturn(0);
 
-    private static int WriteDefaultState(CpuContext context, bool compute)
+    private static int WriteDefaultState(CpuContext context, bool compute, bool contextOnly = false)
     {
         const uint dwords = 0x100;
         if ((uint)context[CpuRegister.Rsi] < dwords || context[CpuRegister.Rdi] == 0)
@@ -24,9 +28,19 @@ public static partial class GnmDriverExports
         Span<byte> commands = stackalloc byte[(int)dwords * sizeof(uint)];
         commands.Clear();
         // Use the same queue defaults as AGC instead of maintaining a second hardware state table.
-        BinaryPrimitives.WriteUInt32LittleEndian(commands,
-            PacketHeader.Make(2, PacketOpcode.Nop, compute ? PacketCustomCode.DispatchReset : PacketCustomCode.DrawReset));
-        BinaryPrimitives.WriteUInt32LittleEndian(commands[8..], PacketHeader.Make(dwords - 2, PacketOpcode.Nop));
+        if (contextOnly)
+        {
+            BinaryPrimitives.WriteUInt32LittleEndian(commands, PacketHeader.Make(2, PacketOpcode.ClearState));
+            BinaryPrimitives.WriteUInt32LittleEndian(commands[8..], PacketHeader.Make(2, PacketOpcode.NumInstances));
+            BinaryPrimitives.WriteUInt32LittleEndian(commands[12..], 1);
+            BinaryPrimitives.WriteUInt32LittleEndian(commands[16..], PacketHeader.Make(dwords - 4, PacketOpcode.Nop));
+        }
+        else
+        {
+            BinaryPrimitives.WriteUInt32LittleEndian(commands,
+                PacketHeader.Make(2, PacketOpcode.Nop, compute ? PacketCustomCode.DispatchReset : PacketCustomCode.DrawReset));
+            BinaryPrimitives.WriteUInt32LittleEndian(commands[8..], PacketHeader.Make(dwords - 2, PacketOpcode.Nop));
+        }
         return context.SetReturn(context.Memory.TryWrite(context[CpuRegister.Rdi], commands) ? (int)dwords : 0);
     }
 

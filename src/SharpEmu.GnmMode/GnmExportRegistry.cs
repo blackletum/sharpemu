@@ -141,6 +141,10 @@ public static class GnmExportRegistry
                 GnmDriverExports.DispatchInitDefaultHardwareState),
             new("libSceGnmDriver", "0H2vBYbTLHI", "sceGnmDrawInitDefaultHardwareState200", Generation.Gen4,
                 GnmDriverExports.DrawInitDefaultHardwareState200),
+            new("libSceGnmDriver", "yb2cRhagD1I", "sceGnmDrawInitDefaultHardwareState350", Generation.Gen4,
+                GnmDriverExports.DrawInitDefaultHardwareState350),
+            new("libSceGnmDriver", "im2ZuItabu4", "sceGnmDrawInitToDefaultContextState400", Generation.Gen4,
+                GnmDriverExports.DrawInitToDefaultContextState400),
         ];
         var overridden = overrides.Select(export => export.Nid).ToHashSet(StringComparer.Ordinal);
         return [.. overrides, .. SharpEmu.Generated.SysAbiExportRegistry.CreateExports(Generation.Gen4)
