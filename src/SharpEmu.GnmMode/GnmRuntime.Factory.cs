@@ -14,7 +14,8 @@ namespace SharpEmu.GnmMode;
 
 public static partial class GnmRuntime
 {
-    public static ISharpEmuRuntime CreateDefault(SharpEmuRuntimeOptions options = default, ISelfLoader? loader = null)
+    public static ISharpEmuRuntime CreateDefault(SharpEmuRuntimeOptions options = default, ISelfLoader? loader = null,
+        GnmLoadExecSession? session = null)
     {
         Libraries.Np.GnmTrophyPackageReader.Configure(Environment.GetEnvironmentVariable(Libraries.Np.GnmTrophyPackageReader.KeyEnvironmentName));
         var memory = new PhysicalVirtualMemory(
@@ -24,7 +25,7 @@ public static partial class GnmRuntime
         try
         {
             var modules = new ModuleManager();
-            modules.RegisterExports(GnmExportRegistry.CreateExports());
+            modules.RegisterExports(GnmExportRegistry.CreateExports(session));
             modules.Freeze();
             var gpuMemory = new GuestGpuMemory(memory);
             GuestGpuMemoryHook.Attach(gpuMemory);
@@ -36,7 +37,9 @@ public static partial class GnmRuntime
                     StrictDynlibResolution = options.StrictDynlibResolution,
                     ImportTraceLimit = options.ImportTraceLimit,
                     DebugHook = options.DebugHook,
-                }, new PhysicalFileSystem(), gpuMemory, options.SystemLanguage ?? 1);
+                    ProcessArguments = session?.Startup?.Arguments,
+                }, new PhysicalFileSystem(), gpuMemory, options.SystemLanguage ?? 1,
+                executableRelativePath: session?.Startup?.Executable);
         }
         catch
         {
