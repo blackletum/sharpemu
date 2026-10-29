@@ -74,7 +74,7 @@ public sealed partial class GcnShaderFrontend : IShaderFrontend
     public bool TryResolveImageCopy(CpuContext context, RegisteredShader shader, ReadOnlySpan<uint> userData,
         ComputeInputInfo input, Gen5ComputeSystemRegisters systemRegisters, uint x, uint y, uint z,
         out ImageRequest source, out ImageRequest destination) =>
-        GcnImageCopy.TryResolve(context.Memory, shader, userData, input, systemRegisters, x, y, z, out source, out destination);
+        GcnImageCopy.TryResolve(context.Memory, shader, userData, input, systemRegisters, x, y, z, _allocate, out source, out destination);
 
     public RegisteredShader ReadShader(CpuContext context, ulong codeAddress, string label, ReadOnlySpan<uint> userData = default)
     {

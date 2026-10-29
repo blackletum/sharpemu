@@ -17,8 +17,11 @@ internal static class GnmDepthTargets
     private const uint DepthSetupFirst = 0x010;
     private const uint DepthSetupCount = 8;
     private const uint DepthSlice = 0x017;
+    private const uint RequestedDepthControl = 0x401;
+    private const uint RequestedRenderControl = 0x402;
     private static readonly ConditionalWeakTable<GpuCommandInterpreter, GuestPlanes> Guests = new();
     private static readonly ConcurrentDictionary<(ulong Guest, Plane Plane), Shadow> Shadows = new();
+    private static readonly ConcurrentDictionary<string, byte> ReportedBindings = new();
     private static ICpuMemory? _memory;
 
     private enum Plane { Depth, Stencil, Htile }
@@ -39,9 +42,12 @@ internal static class GnmDepthTargets
     {
         _memory = memory;
         Shadows.Clear();
+        ReportedBindings.Clear();
     }
 
     internal static bool Touches(uint start, uint count) =>
+        Overlaps(start, count, ContextRegisterOffset.DbDepthControl, 1) ||
+        Overlaps(start, count, ContextRegisterOffset.DbRenderControl, 1) ||
         Overlaps(start, count, ContextRegisterOffset.DbDepthView, 1) ||
         Overlaps(start, count, ContextRegisterOffset.DbHtileDataBase, 1) ||
         Overlaps(start, count, DepthSetupFirst, DepthSetupCount);
@@ -54,6 +60,12 @@ internal static class GnmDepthTargets
             var address = (ulong)values[index] << 8;
             switch (start + (uint)index)
             {
+                case ContextRegisterOffset.DbDepthControl:
+                    interpreter.TypedRegisters.UnmodeledTableRegistersForWrite[RequestedDepthControl] = values[index];
+                    break;
+                case ContextRegisterOffset.DbRenderControl:
+                    interpreter.TypedRegisters.UnmodeledTableRegistersForWrite[RequestedRenderControl] = values[index];
+                    break;
                 case ContextRegisterOffset.DbZReadBase: guest.ZRead = address; break;
                 case ContextRegisterOffset.DbZWriteBase: guest.ZWrite = address; break;
                 case ContextRegisterOffset.DbStencilReadBase: guest.StencilRead = address; break;
@@ -69,9 +81,17 @@ internal static class GnmDepthTargets
     {
         var guest = Guests.GetOrCreateValue(interpreter);
         var depth = interpreter.TypedRegisters.Context.DepthTarget;
+        var raw = interpreter.TypedRegisters.Context.UnmodeledTableRegisters;
+        var hasDepth = depth.DepthFormat != GuestDepthFormat.Invalid;
+        var hasStencil = depth.StencilFormat != GuestStencilFormat.Invalid;
+        var depthControl = raw.TryGetValue(RequestedDepthControl, out var requestedDepth) ? requestedDepth : depth.DepthControl;
+        var renderControl = raw.TryGetValue(RequestedRenderControl, out var requestedRender) ? requestedRender : depth.RenderControl;
+        depthControl &= ~((hasDepth ? 0u : 0xEu) | (hasStencil ? 0u : 1u));
+        renderControl &= ~((hasDepth ? 0u : 5u) | (hasStencil ? 0u : 0xAu));
+        Write(interpreter, in packet, ContextRegisterOffset.DbDepthControl, depth.DepthControl, depthControl);
+        Write(interpreter, in packet, ContextRegisterOffset.DbRenderControl, depth.RenderControl, renderControl);
         var zRead = Guest(guest.ZRead, depth.ZReadBase);
         var zWrite = Guest(guest.ZWrite, depth.ZWriteBase);
-        var hasStencil = depth.StencilFormat != GuestStencilFormat.Invalid;
         var stencilRead = hasStencil ? Guest(guest.StencilRead, depth.StencilReadBase) : 0;
         var stencilWrite = hasStencil ? Guest(guest.StencilWrite, depth.StencilWriteBase) : 0;
         var htile = Guest(guest.Htile, depth.HtileBase);
@@ -96,8 +116,24 @@ internal static class GnmDepthTargets
             }
             if (depth.HtileAcceleration)
                 hostHtile = Place(htile, Plane.Htile, (ulong)htileSize.Size * layers, htileSize.Align, 0);
-            if (zRead != 0 && DepthFormatRule.Find(depth.DepthFormat) is { } rule)
-                GcnImageDescriptor.ObserveDepthTarget(zRead, hostZRead, width, height, layers, rule.GuestFormat);
+            if (GnmDiagnostics.Log && ReportedBindings.Count < 128)
+            {
+                var details = $"read=0x{zRead:X}/0x{hostZRead:X} write=0x{zWrite:X}/0x{hostZWrite:X} " +
+                    $"extent={width}x{height} zInfo=0x{depth.ZInfo:X8} sliceTiles=0x{guest.SliceTiles:X} " +
+                    $"guestSize=0x{allocatedDepth:X} hostSize=0x{depthSize.Size:X} " +
+                    $"htile={depth.HtileAcceleration}:0x{htile:X}/0x{hostHtile:X}:0x{htileSize.Size:X}";
+                if (ReportedBindings.TryAdd(details, 0))
+                    Console.Error.WriteLine($"[GNMMODE][TRACE] Depth plane binding {details}.");
+            }
+            if (DepthFormatRule.Find(depth.DepthFormat) is { } rule)
+            {
+                if (zRead != 0)
+                    GcnImageDescriptor.ObserveDepthTarget(zRead, hostZRead, width, height, layers, rule.GuestFormat,
+                        allocatedDepth, (ulong)depthSize.Size * layers);
+                if (zWrite != 0 && zWrite != zRead)
+                    GcnImageDescriptor.ObserveDepthTarget(zWrite, hostZWrite, width, height, layers, rule.GuestFormat,
+                        allocatedDepth, (ulong)depthSize.Size * layers);
+            }
         }
 
         Write(interpreter, in packet, ContextRegisterOffset.DbZReadBase, ContextRegisterOffset.DbZReadBaseHi, depth.ZReadBase, hostZRead);
@@ -111,6 +147,8 @@ internal static class GnmDepthTargets
 
     private static ulong Place(ulong guest, Plane plane, ulong size, uint align, ulong allocated)
     {
+        if (plane == Plane.Depth && GcnImageDescriptor.TryGetDepthShadow(guest, size, out var copied))
+            return copied;
         var fits = allocated == 0 || size <= allocated;
         if (guest == 0 || size == 0 || align == 0 || fits && (guest & (align - 1UL)) == 0)
             return guest;
@@ -139,6 +177,15 @@ internal static class GnmDepthTargets
         fields[0] = high;
         fields[1] = (uint)(address >> 40);
         _ = handler(interpreter, in normalized, fields);
+    }
+
+    private static void Write(GpuCommandInterpreter interpreter, in PacketContext packet, uint offset, uint current, uint value)
+    {
+        if (current == value)
+            return;
+        var normalized = packet with { Header = PacketHeader.Make(3, PacketOpcode.SetContextRegister) };
+        Span<uint> fields = [offset, value];
+        _ = PacketDispatchTable.Opcodes[PacketOpcode.SetContextRegister]!(interpreter, in normalized, fields);
     }
 
     private static bool Overlaps(uint start, uint count, uint first, uint length) =>

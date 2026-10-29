@@ -30,8 +30,10 @@ public static class GcnImageDescriptor
     private static readonly ConcurrentDictionary<ulong, ColorLayout> ColorTargets = new();
     private readonly record struct LinearLayout(uint Pitch, uint Width, uint Height, GuestPixelFormat Format);
     private static readonly ConcurrentDictionary<ulong, LinearLayout> LinearPitches = new();
-    private readonly record struct DepthLayout(ulong HostAddress, uint Width, uint Height, uint Layers, GuestPixelFormat Format);
+    private readonly record struct DepthLayout(ulong HostAddress, uint Width, uint Height, uint Layers, GuestPixelFormat Format,
+        ulong GuestSize, ulong HostSize);
     private static readonly ConcurrentDictionary<ulong, DepthLayout> DepthTargets = new();
+    private static readonly ConcurrentDictionary<string, byte> ReportedDepthCopies = new();
     private static long _normalizationVersion;
 
     internal static long NormalizationVersion => Volatile.Read(ref _normalizationVersion);
@@ -43,6 +45,15 @@ public static class GcnImageDescriptor
     }
 
     internal static bool IsGpuDepthAddress(ulong address) => DepthTargets.ContainsKey(address);
+
+    internal static bool TryGetDepthShadow(ulong address, ulong size, out ulong hostAddress)
+    {
+        hostAddress = 0;
+        if (!DepthTargets.TryGetValue(address, out var depth) || depth.HostAddress == address || depth.HostSize < size)
+            return false;
+        hostAddress = depth.HostAddress;
+        return true;
+    }
 
     private static bool IsDepthTarget(ReadOnlySpan<uint> words)
     {
@@ -58,17 +69,18 @@ public static class GcnImageDescriptor
         ColorTargets.Clear();
         LinearPitches.Clear();
         DepthTargets.Clear();
+        ReportedDepthCopies.Clear();
         InvalidateNormalizations();
     }
 
     internal static void ObserveDepthTarget(ulong guestAddress, ulong hostAddress, uint width, uint height, uint layers,
-        GuestPixelFormat format)
+        GuestPixelFormat format, ulong guestSize, ulong hostSize)
     {
-        var layout = new DepthLayout(hostAddress, width, height, layers, format);
+        var layout = new DepthLayout(hostAddress, width, height, layers, format, guestSize, hostSize);
         if (DepthTargets.TryGetValue(guestAddress, out var previous) && previous == layout)
             return;
         if (GnmDiagnostics.Log && previous == default)
-            Console.Error.WriteLine($"[GNMMODE][TRACE] GPU depth target address=0x{guestAddress:X} host=0x{hostAddress:X} extent={width}x{height} layers={layers} format={format}.");
+            Console.Error.WriteLine($"[GNMMODE][TRACE] GPU depth target address=0x{guestAddress:X} host=0x{hostAddress:X} extent={width}x{height} layers={layers} format={format} guestSize=0x{guestSize:X} hostSize=0x{hostSize:X}.");
         DepthTargets[guestAddress] = layout;
         InvalidateNormalizations();
     }
@@ -123,16 +135,38 @@ public static class GcnImageDescriptor
         return true;
     }
 
-    internal static bool TryResolveDepthCopy(ulong source, ulong destination, ulong size,
+    internal static bool TryResolveDepthCopy(ulong source, ulong destination, ulong size, Func<ulong, ulong?>? allocate,
         out ImageRequest sourceRequest, out ImageRequest destinationRequest)
     {
         sourceRequest = destinationRequest = default;
-        if (!DepthTargets.TryGetValue(source, out var depth))
+        var sourceKnown = DepthTargets.TryGetValue(source, out var depth);
+        if (GnmDiagnostics.Log && ReportedDepthCopies.Count < 64)
+        {
+            DepthTargets.TryGetValue(destination, out var observedDestination);
+            var details = $"from=0x{source:X} to=0x{destination:X} bytes=0x{size:X} sourceKnown={sourceKnown} source={depth} destination={observedDestination}";
+            if (ReportedDepthCopies.TryAdd(details, 0))
+                Console.Error.WriteLine($"[GNMMODE][TRACE] Depth copy lookup {details}.");
+        }
+        if (!sourceKnown || depth.GuestSize == 0 || size < depth.GuestSize || depth.HostSize == 0)
             return false;
-        var target = DepthTargets.TryGetValue(destination, out var known) ? known.HostAddress : destination;
-        sourceRequest = DepthCopyRequest(depth.HostAddress, size);
-        destinationRequest = DepthCopyRequest(target, size);
-        if (DepthTargets.TryAdd(destination, depth with { HostAddress = destination }))
+
+        var target = depth with { HostAddress = destination };
+        if (DepthTargets.TryGetValue(destination, out var known))
+        {
+            if (known with { HostAddress = depth.HostAddress } != depth)
+                return false;
+            target = known;
+        }
+        else if ((destination & 0xFFFF) != 0 || depth.HostSize > size)
+        {
+            if (allocate?.Invoke(depth.HostSize) is not { } shadow || shadow == 0 || (shadow & 0xFFFF) != 0)
+                return false;
+            target = target with { HostAddress = shadow };
+        }
+
+        sourceRequest = DepthCopyRequest(depth.HostAddress, depth.HostSize);
+        destinationRequest = DepthCopyRequest(target.HostAddress, target.HostSize);
+        if (DepthTargets.TryAdd(destination, target))
             InvalidateNormalizations();
         return true;
     }
