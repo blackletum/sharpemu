@@ -19,8 +19,10 @@ public static class GcnBufferDescriptor
     {
         if (words.Length != 4)
             throw new InvalidDataException("A GCN buffer descriptor must contain four dwords.");
-        if ((words[3] >> 28) >= 8)
+        if ((words[3] & GcnStorageImageLowering.ProjectionMask) == GcnStorageImageLowering.ProjectionMarker)
             return GcnStorageImageLowering.NormalizeProjection(words);
+        if ((words[3] >> 30) != 0)
+            return new uint[4];
         if ((words[1] & 0x80000000) != 0)
             throw new InvalidDataException("GCN swizzled buffer addressing requires legacy element-size lowering.");
         var result = words.ToArray();

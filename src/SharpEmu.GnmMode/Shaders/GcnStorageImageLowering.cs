@@ -12,8 +12,11 @@ public sealed record GcnStorageImageControl(uint Address, uint Data, uint Resour
 // Unfiltered accesses use the shared typed-buffer backend and GCN physical addressing.
 public static class GcnStorageImageLowering
 {
+    internal const uint ProjectionMarker = 0xF000A000;
+    internal const uint ProjectionMask = 0xF000E000;
     private const uint MaxThinLevels = 15;
     private const uint NativeTile = 14;
+    private const uint NativeDisplayTile = 10;
     private const int DescriptorScalars = 8;
     private const int ExpandedScalars = 28;
     private static readonly uint[] PairScalars = [20, 22, 26];
@@ -23,11 +26,11 @@ public static class GcnStorageImageLowering
     public static uint[] NormalizeProjection(ReadOnlySpan<uint> words)
     {
         var layout = words[3];
-        var type = layout >> 28;
+        var type = (layout >> 16) & 15;
         var tile = (layout >> 20) & 31;
         var format = layout & 63;
         var number = (layout >> 6) & 15;
-        if (tile == NativeTile)
+        if (tile is NativeTile or NativeDisplayTile)
             return EmptyProjection();
         if (tile == 0 && format == 4 && number == 7 && (layout & (1u << 26)) == 0 &&
             GcnImageDescriptor.IsGpuDepthAddress(words[0] | ((ulong)(words[1] & 0xFF) << 32)))
@@ -382,8 +385,11 @@ public static class GcnStorageImageLowering
         Select(2, S(13), S(2));
         S2("SAddU32", 0, S(0), S(25));
         S2("SAddcU32", 1, S(1), C(0));
-        // Carry original type/tiling/format to host validation; this is not a guest V#.
-        S2("SAndB32", 3, T(3), C(0xF1F00000));
+        S2("SAndB32", 3, T(3), C(0x01F00000));
+        S2("SLshrB32", 11, T(3), C(28));
+        S2("SLshlB32", 11, S(11), C(16));
+        S2("SOrB32", 3, S(3), S(11));
+        S2("SOrB32", 3, S(3), C(ProjectionMarker));
         S2("SLshrB32", 11, T(1), C(20));
         S2("SAndB32", 11, S(11), C(1023));
         S2("SOrB32", 3, S(3), S(11));
@@ -528,12 +534,14 @@ public static class GcnStorageImageLowering
         void CompareNativeTile()
         {
             ScalarEq(S(9), C(NativeTile));
-            if (!load) return;
-            // Known GCN depth surfaces (tile 0) live in native depth images too.
-            // Host descriptor validation leaves unknown tile-0 resources unbound.
             Select(19, C(1), C(0));
-            ScalarEq(S(9), C(0));
+            ScalarEq(S(9), C(NativeDisplayTile));
             Select(19, C(1), S(19));
+            if (load)
+            {
+                ScalarEq(S(9), C(0));
+                Select(19, C(1), S(19));
+            }
             ScalarEq(S(19), C(1));
         }
         CompareNativeTile();
