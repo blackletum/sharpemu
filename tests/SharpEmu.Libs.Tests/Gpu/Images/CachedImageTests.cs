@@ -391,6 +391,41 @@ public sealed unsafe class CachedImageTests : IClassFixture<HeadlessVulkanFixtur
     }
 
     [Fact]
+    public void GetOrCreateView_ConcurrentRequestsPublishOnlyOneView()
+    {
+        if (!GatePrerequisites.Ready(_vulkan)) return;
+        using var fatal = new FatalScope();
+        using var harness = new ImageTestHarness(_vulkan);
+        var image = harness.CreateImage(Color2D(64, 64));
+        var request = ImageViewDescription.Default with { Format = Format.R8G8B8A8Unorm };
+        var handles = new ulong[64];
+        Parallel.For(0, handles.Length, index => handles[index] = image.GetOrCreateView(request).Handle);
+        Assert.NotEqual(0UL, handles[0]);
+        Assert.All(handles, handle => Assert.Equal(handles[0], handle));
+        Assert.Single(image.Views);
+    }
+
+    [Fact]
+    public void GetOrCreateView_CachedLookupDoesNotWaitForTheCreationGate()
+    {
+        if (!GatePrerequisites.Ready(_vulkan)) return;
+        using var fatal = new FatalScope();
+        using var harness = new ImageTestHarness(_vulkan);
+        var image = harness.CreateImage(Color2D(64, 64));
+        var request = ImageViewDescription.Default with { Format = Format.R8G8B8A8Unorm };
+        var expected = image.GetOrCreateView(request);
+        Task<ImageView> lookup;
+        bool completed;
+        lock (image.Views)
+        {
+            lookup = Task.Run(() => image.GetOrCreateView(request));
+            completed = lookup.Wait(TimeSpan.FromSeconds(2));
+        }
+        Assert.Equal(expected, lookup.GetAwaiter().GetResult());
+        Assert.True(completed);
+    }
+
+    [Fact]
     public void GetOrCreateView_NormalizesAndCachesViews()
     {
         if (!GatePrerequisites.Ready(_vulkan)) return;

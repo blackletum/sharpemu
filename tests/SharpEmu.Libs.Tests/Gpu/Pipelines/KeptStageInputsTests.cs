@@ -2,11 +2,15 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 using System.Buffers.Binary;
+using SharpEmu.HLE;
 using SharpEmu.Libs.Diagnostics;
 using SharpEmu.Libs.Gpu.GpuCommands.Registers;
 using SharpEmu.Libs.Gpu.Pipelines;
 using SharpEmu.Libs.Gpu.Rendering;
 using SharpEmu.Libs.Tests.Gpu.Scheduling;
+using SharpEmu.ShaderCompiler;
+using SharpEmu.ShaderCompiler.Resources;
+using TestProgram = SharpEmu.ShaderCompiler.Tests.Resources.ResourceTestProgram;
 using Xunit;
 
 namespace SharpEmu.Libs.Tests.Gpu.Pipelines;
@@ -114,6 +118,60 @@ public sealed class KeptStageInputsTests : IDisposable
         control.KillEnable = enabled;
         shaderInterface.DepthShaderControl = control;
         _banks.MarkWritten(1u << (int)RegisterStamp.ShaderInterface);
+    }
+
+    private sealed class HeaderlessFrontend : IShaderFrontend
+    {
+        public ulong CacheDomain => 0x484541444552;
+        public uint VertexUserDataBase => 0;
+        public bool HasVertexTables => false;
+        public uint ScratchDwords;
+        public uint SemanticsCount;
+        public int Reads;
+
+        public RegisteredShader ReadShader(CpuContext context, ulong codeAddress, string label, ReadOnlySpan<uint> userData = default)
+        {
+            Reads++;
+            return new RegisteredShader(codeAddress, 0, 4, ScratchDwords, 0, Semantics, SemanticsCount, 0, 0);
+        }
+
+        public bool TryDecode(CpuContext context, RegisteredShader shader, out Gen5ShaderProgram program, out string error)
+        {
+            program = TestProgram.Program(TestProgram.EndProgram(0));
+            error = string.Empty;
+            return true;
+        }
+    }
+
+    [Fact]
+    public void HeaderlessPixelInputsReuseStaticArraysWhileEachDrawStillValidatesItsShader()
+    {
+        var frontend = new HeaderlessFrontend();
+        var registry = new ShaderHeaderRegistry(_guest.Context, _ => 0, _ => null, frontend);
+        var cache = new ShaderPipelineCache(_guest.Context, _guest.Host, _guest.Compiler, registry);
+        PixelInputInfo Read() => cache.GetGraphicsPrograms(_banks, [], pixelActive: true, depthBound: false).PixelInput;
+        var first = Read();
+        var second = Read();
+        Assert.Equal(4, frontend.Reads);
+        Assert.Same(first.InterpolatorSettings, second.InterpolatorSettings);
+        Assert.Same(first.TargetOutputModes, second.TargetOutputModes);
+
+        frontend.ScratchDwords = 8;
+        var changedScratch = Read();
+        Assert.Equal(8u, changedScratch.ScratchDwords);
+        Assert.NotSame(second.InterpolatorSettings, changedScratch.InterpolatorSettings);
+        _guest.WriteWords(PixelAddress, 0xBF800000);
+        var changedCode = Read();
+        Assert.NotSame(changedScratch.InterpolatorSettings, changedCode.InterpolatorSettings);
+
+        var otherRegistry = new ShaderHeaderRegistry(_guest.Context, _ => 0, _ => null, frontend);
+        cache = new ShaderPipelineCache(_guest.Context, _guest.Host, _guest.Compiler, otherRegistry);
+        var otherSession = Read();
+        Assert.NotSame(changedCode.InterpolatorSettings, otherSession.InterpolatorSettings);
+
+        frontend.SemanticsCount = 1;
+        var withSemantics = Read();
+        Assert.NotSame(withSemantics.InterpolatorSettings, Read().InterpolatorSettings);
     }
 
     [Fact]
