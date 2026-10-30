@@ -154,7 +154,8 @@ internal sealed partial class RenderRecorder
 
     private bool TryConsume(ResolvedDispatch record, ShaderProgramInfo program)
     {
-        if (record.MetadataClear is { } probes && TryClearMetadata(probes, record.MetadataClearHasExclusiveOr))
+        if (record.MetadataClear is { } probes &&
+            TryClearMetadata(probes, record.MetadataClearHasExclusiveOr, program.Frontend is not null && program.StoresUniformValues))
         {
             return true;
         }
@@ -233,11 +234,11 @@ internal sealed partial class RenderRecorder
         return false;
     }
 
-    private bool TryClearMetadata(MetadataBufferProbe[] probes, bool hasExclusiveOr)
+    private bool TryClearMetadata(MetadataBufferProbe[] probes, bool hasExclusiveOr, bool readsOnlyGuardStores)
     {
         foreach (var probe in probes)
         {
-            if (_host.IsMetadata(probe.Address) && (!probe.Written || probe.Read))
+            if (_host.IsMetadata(probe.Address) && (!probe.Written || (probe.Read && !readsOnlyGuardStores)))
             {
                 return false;
             }
