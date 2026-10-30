@@ -2008,6 +2008,7 @@ internal sealed class ShaderProgramCache
             ConstantFill = entry.ConstantFill,
             BoundedFill = entry.BoundedFill,
             BoundedCopy = entry.BoundedCopy,
+            StoresUniformValues = entry.StoresUniformValues,
             Buffers = buffers,
             Images = images,
             SamplerCount = info.Samplers.Count,
