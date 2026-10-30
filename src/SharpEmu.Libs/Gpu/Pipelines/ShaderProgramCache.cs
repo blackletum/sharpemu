@@ -369,9 +369,7 @@ internal sealed class ShaderProgramCache
     private Gen5ShaderProgram DecodeCore(ShaderSource source, (ulong Hash, uint CodeSize, ulong ContinuationAddressOffset) key)
     {
         using var decodeScope = RenderPhaseProfile.MeasureDetail(RenderPhaseProfile.Phase.ProgramDecode);
-        // The portable capture format currently replays AGC only, not an external ISA frontend.
-        var recording = source.Registered.Frontend is null && _host.ShaderPrewarm is not null
-            ? new RecordingCpuMemory(_context.Memory) : null;
+        var recording = _host.ShaderPrewarm is not null ? new RecordingCpuMemory(_context.Memory) : null;
         var context = recording is null ? _context : new CpuContext(recording, _context.TargetGeneration);
         Gen5ShaderProgram program;
         var decoded = source.Registered.Frontend is { } frontend
@@ -385,21 +383,34 @@ internal sealed class ShaderProgramCache
 
         if (recording is not null)
         {
+            var external = source.Registered.Frontend;
             _codeCaptures[key] = new ShaderCodeCapture
             {
                 Hash = source.Hash,
                 CodeSize = source.CodeSize,
                 Address = source.Address,
                 Generation = _context.TargetGeneration,
-                Fused = Gen5ShaderTranslator.TryGetFusedProgramParts(
+                Fused = external is null && Gen5ShaderTranslator.TryGetFusedProgramParts(
                     _context, source.Address, out var entryHeader, out var continuation, out var continuationHeader)
                     ? new FusedCodeParts(entryHeader, continuation, continuationHeader)
                     : null,
                 Ranges = recording.TakeRanges(),
+                FrontendDomain = external?.CacheDomain ?? 0,
+                FrontendUserData = external is null ? [] : source.Registered.FrontendUserData.ToArray(),
+                FrontendContinuationOffset = external is null ? 0 : source.ContinuationAddressOffset,
             };
         }
 
         return program;
+    }
+
+    internal (ShaderProgram Handle, ShaderProgramInfo Program) CompilePrewarmStage(ShaderSource source, StageCompileOptions options,
+        ResourceSpecialization specialization, uint pushDataCursor)
+    {
+        var entry = CreateEntry(source, options);
+        var permutation = CompilePermutation(source, options, entry, specialization, pushDataCursor, KeyFor(source, options),
+            sourceWasCached: false, snapshot: null!);
+        return (permutation.Handle, permutation.Program);
     }
 
     // Links a program with shader calls before it returns.
@@ -1611,6 +1622,29 @@ internal sealed class ShaderProgramCache
             });
         }
 
+        if (source.Stage is ShaderStage.Vertex or ShaderStage.Pixel && options.Tessellation is null && !entry.HasShaderCalls &&
+            _host.ShaderPrewarm is { } stagePrewarm &&
+            _programs.TryGetValue(key, out var canonical) && ReferenceEquals(canonical, entry) &&
+            _codeCaptures.TryGetValue((source.Hash, source.CodeSize, source.ContinuationAddressOffset), out var stageCapture))
+        {
+            stagePrewarm.RecordStage(stageCapture, module, new StagePrewarmRecord
+            {
+                Stage = source.Stage,
+                CodeKey = stageCapture.Key,
+                Registered = source.Registered with
+                {
+                    CodeAddress = stageCapture.Address,
+                    ContinuationAddress = source.Registered.IsFused ? stageCapture.Address + source.ContinuationAddressOffset : 0,
+                },
+                Hash = source.Hash,
+                UserDataBase = source.UserDataBase,
+                UserDataCount = (uint)source.UserData.Length,
+                PushDataCursor = pushDataCursor,
+                Options = options,
+                Specialization = specialization,
+            });
+        }
+
         return new ProgramPermutation
         {
             Specialization = specialization,
@@ -1773,22 +1807,47 @@ internal sealed class ShaderProgramCache
     internal static bool TryCompilePrewarm(ComputePrewarmRecord record, ShaderCodeCapture code, IGuestGpuBackend compiler,
         bool sharedInt64Atomics, bool execGuardElision, bool signedZeroInfNanPreserve, out IGuestCompiledShader? compiled,
         out BindingLayout? layout, out string error, bool hostWave64Supported = false, bool hostComputeSubgroup32 = false,
-        bool imageInt64Atomics = false, bool tableBlocks = false)
+        bool imageInt64Atomics = false, bool tableBlocks = false, Func<ulong, IShaderFrontend?>? frontendOf = null)
     {
         compiled = null;
         layout = null;
         try
         {
-            if (!Gen5ShaderTranslator.TryDecodeProgram(code.CreateContext(), code.Address, out var program, out error))
+            IShaderFrontend? frontend = null;
+            Gen5ShaderProgram program;
+            if (code.FrontendDomain != 0)
+            {
+                frontend = frontendOf?.Invoke(code.FrontendDomain);
+                if (frontend is null)
+                {
+                    error = $"The shader frontend 0x{code.FrontendDomain:X16} is not registered.";
+                    return false;
+                }
+
+                var shader = new RegisteredShader(code.Address, 0, code.CodeSize, 0, 0, 0, 0, 0, 0)
+                {
+                    Frontend = frontend,
+                    FrontendUserData = code.FrontendUserData,
+                };
+                if (!frontend.TryDecode(code.CreateContext(), shader, ShaderStage.Compute, out program, out error))
+                {
+                    return false;
+                }
+            }
+            else if (!Gen5ShaderTranslator.TryDecodeProgram(code.CreateContext(), code.Address, out program, out error))
             {
                 return false;
             }
 
             var plan = ShaderResourcePlan.Extract(program, ShaderStage.Compute, record.Hash, record.UserDataBase, record.UserDataCount,
-                waveSize: record.Info.WaveSize);
+                waveSize: record.Info.WaveSize,
+                normalizeBufferDescriptor: frontend?.NormalizeBufferDescriptor,
+                normalizeImageDescriptor: frontend?.NormalizeImageDescriptor,
+                imageNormalizationVersion: frontend?.ImageNormalizationVersion);
             var resources = ResourceMaterializer.ApplyTo(plan, record.Specialization);
             layout = AllocateLayout(program, plan, resources, record.UserDataBase, record.UserDataCount, record.PushDataCursor,
-                record.Info.DispatchThreadDimensions, tableBlocks: tableBlocks);
+                record.Info.DispatchThreadDimensions, usesBufferLengths: frontend?.RequiresExplicitBufferLengths ?? false,
+                tableBlocks: tableBlocks);
             var request = BuildComputeRequest(plan, resources, layout, record.Info, record.SystemRegisters,
                 sharedInt64Atomics, execGuardElision, signedZeroInfNanPreserve, hostWave64Supported, hostComputeSubgroup32,
                 imageInt64Atomics);

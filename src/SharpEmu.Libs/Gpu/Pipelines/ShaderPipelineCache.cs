@@ -1348,6 +1348,12 @@ internal sealed partial class ShaderPipelineCache : IShaderPipelineProvider
                 _graphicsPipelines.TryAdd(key, created);
             }
 
+            if (_host.ShaderPrewarm is { } prewarm && description.Tessellation is null &&
+                description.VertexStage.Stage == ShaderStageKind.Vertex)
+            {
+                prewarm.RecordGraphics(description);
+            }
+
             ShaderCacheCounters.CountGraphicsPipeline();
             return created;
         }

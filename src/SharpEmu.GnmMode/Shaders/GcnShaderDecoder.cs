@@ -25,7 +25,8 @@ public static partial class GcnShaderDecoder
         for (var pc = 0u; pc < maximumSize;)
         {
             // Four dwords cover all currently supported GCN instruction forms.
-            if (address > ulong.MaxValue - pc || !memory.TryRead(address + pc, bytes))
+            var readable = address > ulong.MaxValue - pc ? 0 : ReadInstructionWindow(memory, address + pc, bytes);
+            if (readable == 0)
             {
                 error = $"gcn-fetch-code-unreadable pc=0x{pc:X} address=0x{address:X}";
                 return false;
@@ -33,6 +34,11 @@ public static partial class GcnShaderDecoder
             if (!TryDecodeInstruction(bytes, 0, out var instruction, out error))
             {
                 error = $"gcn-fetch {error} at offset=0x{pc:X}";
+                return false;
+            }
+            if (instruction.Words.Count * 4 > readable)
+            {
+                error = $"gcn-fetch-code-unreadable pc=0x{pc + (uint)readable:X} address=0x{address:X}";
                 return false;
             }
             instruction = instruction with { Pc = pc };
@@ -57,6 +63,20 @@ public static partial class GcnShaderDecoder
         }
         error = "unterminated-gcn-fetch-program";
         return false;
+    }
+
+    private static int ReadInstructionWindow(ICpuMemory memory, ulong address, Span<byte> bytes)
+    {
+        for (var length = bytes.Length; length >= sizeof(uint); length -= sizeof(uint))
+        {
+            if (memory.TryRead(address, bytes[..length]))
+            {
+                bytes[length..].Clear();
+                return length;
+            }
+        }
+
+        return 0;
     }
 
     public static bool TryDecode(ICpuMemory memory, ulong address, uint size,

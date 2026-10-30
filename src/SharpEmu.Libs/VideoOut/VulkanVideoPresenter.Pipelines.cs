@@ -1151,7 +1151,7 @@ internal static unsafe partial class VulkanVideoPresenter
 
         // One graphics pipeline for dynamic rendering: the attachment formats travel in the create info.
         internal Pipeline CreateRenderPipeline(GraphicsPipelineDescription description, PrimitiveTopology topology, PipelineLayout layout,
-            PolygonMode polygonMode = PolygonMode.Fill, bool expandRectangles = false)
+            PolygonMode polygonMode = PolygonMode.Fill, bool expandRectangles = false, bool prewarm = false)
         {
             var parameters = description.StaticParameters;
             var rendering = description.Rendering;
@@ -1414,7 +1414,7 @@ internal static unsafe partial class VulkanVideoPresenter
                         Layout = layout,
                     };
                     var reportStart = Stopwatch.GetTimestamp();
-                    var cache = GetGuestPipelineCache(GraphicsCacheKey(description.VertexStage.Hash,
+                    var cache = prewarm ? _pipelineCache : GetGuestPipelineCache(GraphicsCacheKey(description.VertexStage.Hash,
                         description.PixelStage?.Hash ?? 0, vertexModule.Handle, pixelModule.Handle));
                     var creationStart = RenderPhaseProfile.Enabled ? Stopwatch.GetTimestamp() : 0;
                     Result creationResult;
@@ -1423,13 +1423,18 @@ internal static unsafe partial class VulkanVideoPresenter
                     {
                         creationResult = _vk.CreateGraphicsPipelines(_device, cache, 1, &pipelineInfo, null, out pipeline);
                     }
-                    if (RenderPhaseProfile.Enabled)
+                    if (RenderPhaseProfile.Enabled && !prewarm)
                     {
                         var creationMilliseconds = Stopwatch.GetElapsedTime(creationStart).TotalMilliseconds;
                         Console.Error.WriteLine($"[PERF][PIPELINE_DRIVER] kind=graphics stage={description.VertexStage.Stage} vertex=0x{description.VertexStage.Hash:X16} pixel=0x{description.PixelStage?.Hash ?? 0:X16} topology={topology} driver_ms={creationMilliseconds:F3} result={creationResult}");
                     }
                     Check(creationResult,
                         $"vkCreateGraphicsPipelines(rendering vs=0x{description.VertexStage.Hash:X16} ps=0x{description.PixelStage?.Hash ?? 0:X16})");
+                    if (prewarm)
+                    {
+                        return pipeline;
+                    }
+
                     ReportPipelineCreation(
                         (long)Stopwatch.GetElapsedTime(reportStart).TotalMilliseconds,
                         "graphics",

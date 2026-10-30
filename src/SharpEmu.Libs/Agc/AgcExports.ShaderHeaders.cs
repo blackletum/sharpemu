@@ -10,12 +10,21 @@ namespace SharpEmu.Libs.Agc;
 public static partial class AgcExports
 {
     private static readonly ConditionalWeakTable<ICpuMemory, IShaderFrontend> _shaderFrontends = new();
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<ulong, IShaderFrontend> _shaderFrontendsByDomain = new();
 
     public static void SetShaderFrontend(ICpuMemory memory, IShaderFrontend frontend)
     {
         while (memory is ICpuMemoryWrapper wrapper) memory = wrapper.Inner;
         _shaderFrontends.AddOrUpdate(memory, frontend);
+        _shaderFrontendsByDomain[frontend.CacheDomain] = frontend;
     }
+
+    internal static IShaderFrontend? ShaderFrontendForDomain(ulong domain) =>
+        _shaderFrontendsByDomain.TryGetValue(domain, out var frontend) ? frontend : null;
+
+    internal static string ShaderFrontendStamp() => string.Join('|', _shaderFrontendsByDomain
+        .OrderBy(static pair => pair.Key)
+        .Select(static pair => $"{pair.Key:X16}:{pair.Value.GetType().Assembly.ManifestModule.ModuleVersionId:N}"));
 
     private static IShaderFrontend? ShaderFrontendOf(ICpuMemory memory)
     {
