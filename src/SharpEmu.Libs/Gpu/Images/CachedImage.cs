@@ -100,6 +100,7 @@ public sealed unsafe partial class CachedImage : IDisposable
     internal SurfaceMetadata? MetadataRegistration;
     public readonly ImageBacking Backing = new();
     public readonly List<CachedImageView> Views = new();
+    private CachedImageView[] _viewSnapshot = [];
     public ImageUses Uses;
     public ImageBindingState Binding;
 
@@ -623,6 +624,11 @@ public sealed unsafe partial class CachedImage : IDisposable
                 $"exists={image.Exists} formatValid={formatCompatible} usageValid={usageValid} rangesValid={rangesValid} mappingValid={mappingValid} typeValid={typeValid} aspectValid={aspectValid}.");
         }
 
+        foreach (var cached in Volatile.Read(ref _viewSnapshot))
+        {
+            if (cached.Description.Equals(normalized)) return cached.View;
+        }
+
         lock (Views)
         {
             foreach (var cached in Views)
@@ -670,12 +676,14 @@ public sealed unsafe partial class CachedImage : IDisposable
         }
 
         Views.Add(new CachedImageView(normalized, view));
+        Volatile.Write(ref _viewSnapshot, Views.ToArray());
         return view;
     }
 
     // Immediate destruction; the owner waits for GPU work before disposing.
     public void Dispose()
     {
+        Volatile.Write(ref _viewSnapshot, []);
         foreach (var cached in Views)
         {
             _device.Vk.DestroyImageView(_device.Device, cached.View, null);

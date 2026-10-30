@@ -609,7 +609,10 @@ internal sealed partial class ShaderPipelineCache : IShaderPipelineProvider
         ReadOnlySpan<ColorComponentMap> targetExportMapping, bool depthBound, KeptPixelInput kept, out Gen5PixelOutputBinding[] outputs,
         out uint attributeCount, out bool dropUnwritten)
     {
-        var key = new PixelInputKey(banks.Stamp(RegisterStamp.ColorTargets, RegisterStamp.ShaderInterface), PixelOutputBlend(banks.Context), header, source.Hash,
+        // Headerless frontends reread each draw's shader; that wrapper is not pixel input state.
+        object headerKey = header.Shader is { HeaderAddress: 0, Frontend: not null, InputSemanticsCount: 0 } ? _registry : header;
+        var key = new PixelInputKey(banks.Stamp(RegisterStamp.ColorTargets, RegisterStamp.ShaderInterface), PixelOutputBlend(banks.Context), headerKey,
+            header.Registrations, header.Shader.ScratchDwords, source.Hash,
             Pack(targetExportMapping), targetExportMapping.Length, depthBound);
         if (kept.Info is { } info && kept.Key == key)
         {
@@ -1740,7 +1743,9 @@ internal sealed class KeptPixelInput
 internal readonly record struct PixelInputKey(
     ulong InterfaceStamp,
     uint OutputBlend,
-    ShaderHeaderEntry? Header,
+    object Header,
+    long Registrations,
+    uint ScratchDwords,
     ulong Hash,
     ulong ExportMappings,
     int ExportMappingCount,

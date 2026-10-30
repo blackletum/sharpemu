@@ -40,7 +40,7 @@ internal static unsafe partial class VulkanVideoPresenter
             if (OnCommandThread)
             {
                 if (!_guestPublications.HasOverlap(address, size, includeLabels, skipGpuSlots)) return;
-                _commandThread!.Run(() => CompleteOverlappingPublications(address, size, includeLabels, skipGpuSlots));
+                CompletePublicationsOnRenderThread(address, size, includeLabels, skipGpuSlots);
                 return;
             }
             var tick = _guestPublications.OverlapTick(address, size, includeLabels, skipGpuSlots);
@@ -48,6 +48,10 @@ internal static unsafe partial class VulkanVideoPresenter
             _scheduler.Wait(tick);
             _scheduler.RunCompletedOperations();
         }
+
+        private void CompletePublicationsOnRenderThread(ulong address, ulong size, bool includeLabels, bool skipGpuSlots) =>
+            _commandThread!.Run(() => CompleteOverlappingPublications(address, size, includeLabels, skipGpuSlots), nameof(CompleteOverlappingPublications));
+
         public bool TryReadOcclusionCounter(int queueId, out ulong value)
         {
             if (OnCommandThread)

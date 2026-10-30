@@ -85,19 +85,27 @@ internal static unsafe partial class VulkanVideoPresenter
 
             if (OnCommandThread)
             {
-                try
-                {
-                    return frontend.NormalizeImageForResolution(words, stage, shaderHash, source, false);
-                }
-                catch (SerialResolveRequiredException)
-                {
-                }
-                var copy = words.ToArray();
-                return _commandThread!.Run(() => frontend.NormalizeImageForResolution(copy, stage, shaderHash, source, true));
+                return NormalizeImageOnCommandThread(frontend, words, stage, shaderHash, source);
             }
 
             return frontend.NormalizeImageForResolution(words, stage, shaderHash, source, true);
         }
+
+        private uint[] NormalizeImageOnCommandThread(IShaderFrontend frontend, ReadOnlySpan<uint> words,
+            ShaderStage stage, ulong shaderHash, string source)
+        {
+            try
+            {
+                return frontend.NormalizeImageForResolution(words, stage, shaderHash, source, false);
+            }
+            catch (SerialResolveRequiredException)
+            {
+            }
+            return NormalizeImageOnRenderThread(frontend, words.ToArray(), stage, shaderHash, source);
+        }
+
+        private uint[] NormalizeImageOnRenderThread(IShaderFrontend frontend, uint[] words, ShaderStage stage, ulong shaderHash, string source) =>
+            _commandThread!.Run(() => frontend.NormalizeImageForResolution(words, stage, shaderHash, source, true), nameof(IShaderPipelineHost.NormalizeImageDescriptor));
 
         // Wave64 compute runs natively when the device's subgroup is that wide; smaller devices emulate it.
         bool IShaderPipelineHost.ComputeWave64SubgroupNative =>

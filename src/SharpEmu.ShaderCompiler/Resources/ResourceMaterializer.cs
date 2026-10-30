@@ -249,9 +249,27 @@ public static partial class ResourceMaterializer
         }
 
         var info = plan.Info;
+        if (plan.NormalizeBufferDescriptor is { } normalizeBuffer)
+        {
+            for (var index = 0; index < info.Buffers.Count; index++)
+            {
+                var words = output.Source(index);
+                var normalized = normalizeBuffer(words);
+                if (normalized.Length != words.Length) return false;
+                normalized.CopyTo(words);
+            }
+        }
+
         for (var index = 0; index < info.Images.Count; index++)
         {
             var words = output.Source(info.Buffers.Count + index);
+            if (plan.NormalizeImageDescriptor is { } normalizeImage)
+            {
+                var normalized = normalizeImage(words, plan.Stage, plan.Hash, "direct");
+                if (normalized.Length != words.Length) return false;
+                normalized.CopyTo(words);
+            }
+
             if (!ValidImageDescriptor(words, info.Images[index].R128))
             {
                 words.Clear();
@@ -328,7 +346,6 @@ public static partial class ResourceMaterializer
     }
 
     public static bool CanMaterializeFast(ShaderResourcePlan plan) =>
-        plan.NormalizeBufferDescriptor is null && plan.NormalizeImageDescriptor is null &&
         plan.IndirectImages.Count == 0 && plan.BufferCandidateTables.Count == 0 && plan.MaterializationProgram is not null;
 
     // Materializes every draw from the plan's program: no cached snapshot to prove. The
@@ -517,6 +534,12 @@ public static partial class ResourceMaterializer
         if (!MaterializeSnapshot(plan, inputs, captureSelectorDiagnostic: false, out var materialized, out var programRanges, out failure))
         {
             return false;
+        }
+
+        if (plan.NormalizeBufferDescriptor is { } normalize)
+        {
+            for (var index = 0; index < materialized.Buffers.Length; index++)
+                materialized.Buffers[index] = normalize(materialized.Buffers[index]);
         }
 
         _fastMaterializations.Increment();
