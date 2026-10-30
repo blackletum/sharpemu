@@ -153,6 +153,7 @@ internal sealed class ProgramSourceEntry
     public ConstantFill? ConstantFill { get; init; }
     public BoundedFill? BoundedFill { get; init; }
     public BoundedCopy? BoundedCopy { get; init; }
+    public bool StoresUniformValues { get; init; }
     public EmbeddedVertexFetchPlan? EmbeddedFetch { get; init; }
     public ShaderVertexInput[] VertexInputs { get; init; } = [];
     private ProgramPermutation[] _permutations = [];
