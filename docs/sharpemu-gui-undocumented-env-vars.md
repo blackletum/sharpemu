@@ -57,7 +57,7 @@ result filters, mutex warning sampling, and diagnostic selection.
 | GnmMode | 4 (plus 2 shared switches listed below; trophy key also exposed in GUI) |
 | Audio and video | 6 |
 | Input | 5 |
-| Memory and CPU | 19 |
+| Memory and CPU | 20 |
 | Loader | 11 |
 | Debugger | 1 |
 | Log channels | 76 |
@@ -233,6 +233,7 @@ These variables apply to guest memory and guest code execution.
 | `SHARPEMU_DISABLE_NATIVE_GUEST_WORKERS` | `1` | Stops the use of native worker threads for guest thread execution on Windows. The default uses the native workers. | `DirectExecutionBackend.NativeWorker.cs` |
 | `SHARPEMU_DISABLE_POSIX_SIGNALS` | `1` | Does not install the POSIX signal handlers on Linux. The emulator then cannot recover guest faults. | `DirectExecutionBackend.PosixSignals.cs` |
 | `SHARPEMU_DISABLE_RAW_HANDLER` | `1` | Does not install the raw vectored exception handler on Windows. On POSIX hosts it stops the raw sentinel recovery. The default keeps the two functions on. | `DirectExecutionBackend.Exceptions.cs`, `DirectExecutionBackend.PosixSignals.cs` |
+| `SHARPEMU_HOST_WORKER_PRIORITY` | `0` | `0` leaves the emulator's render, resolve, GPU priority and staging copy worker threads at normal priority without an affinity mask. The default raises them above normal priority and keeps them off the render core when the render core reservation is active, so spinning guest threads do not delay them. | `HostLaneReservation.cs` |
 | `SHARPEMU_IGNORE_INT41` | `0` or `false` | The fault handler skips guest `int 0x41` instructions and continues at the next instruction by default. Set `0` or `false` to stop this recovery. The emulator shows a warning for the first 16 traps and then for each 65536th trap. | `DirectExecutionBackend.cs`, `DirectExecutionBackend.Exceptions.cs` |
 | `SHARPEMU_IGNORE_STACK_CHK` | `1` | Recovers from a guest stack-protector failure call (NID `Ou3iL1abvng`) when a UD2 instruction follows the call. The emulator sets the return address to the function epilogue 20 bytes before. It does this only when the code bytes match the known pattern. | `DirectExecutionBackend.Imports.cs` |
 | `SHARPEMU_LAZY_RESERVE_PRIME_MB` | number | Sets the number of megabytes that the emulator commits at the start of each reserve-only memory region. The default is 64 and the maximum is 4096. The value 0 turns the initial commit off. | `PhysicalVirtualMemory.cs` |

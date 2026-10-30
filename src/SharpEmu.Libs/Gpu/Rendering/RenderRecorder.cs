@@ -493,7 +493,8 @@ internal sealed partial class RenderRecorder : IResolvedCommandSink
         var vertexBuffers = meshInput is null ? AcquireVertexBuffers(vertexInput) : default;
         var indexBuffer = meshInput is null ? AcquireIndexBuffer(in indexSource) : default;
         var indirectArguments = meshInput is null && emission.IndirectArgumentsAddress != 0
-            ? _host.ObtainBuffer(emission.IndirectArgumentsAddress, RenderExecutor.IndexedIndirectArgumentsSize, isWritten: false)
+            ? _host.ObtainBuffer(emission.IndirectArgumentsAddress,
+                emission.Indexed ? RenderExecutor.IndexedIndirectArgumentsSize : RenderExecutor.AutoIndirectArgumentsSize, isWritten: false)
             : default;
         RenderExecutor.DropUnwrittenColorTargets(context, ref state, pixelProgram);
         if (inPlace && TryRestoreAttachments(ref state))
@@ -572,9 +573,13 @@ internal sealed partial class RenderRecorder : IResolvedCommandSink
         {
             DrawMeshTasks(record, mesh, meshVertexCount);
         }
-        else if (emission.IndirectArgumentsAddress != 0)
+        else if (emission.IndirectArgumentsAddress != 0 && emission.Indexed)
         {
             _host.DrawIndexedIndirect(indirectArguments);
+        }
+        else if (emission.IndirectArgumentsAddress != 0)
+        {
+            _host.DrawIndirect(indirectArguments);
         }
         else if (record.Kind == ResolvedDrawKind.Tessellation)
         {

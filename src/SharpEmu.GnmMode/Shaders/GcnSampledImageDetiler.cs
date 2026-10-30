@@ -132,10 +132,61 @@ internal sealed class GcnSampledImageDetiler(ICpuMemory memory, Func<ulong, ulon
         }
         if (!Resolve(key, GeometryOf(key), out var resolved, out _) || resolved != address)
         {
-            GcnImageDescriptor.InvalidateNormalizations();
+            GcnImageDescriptor.InvalidateNormalizations(NormalizationInvalidation.DetileMiss);
             return false;
         }
         return true;
+    }
+
+    private static int NextVerifyInterval(in ShadowKey key, int interval) =>
+        interval * 2 < MaxVerifyInterval ? interval * 2 : MaxVerifyInterval / 2 + (int)((uint)key.GetHashCode() % MaxVerifyInterval);
+
+    internal bool IsPrepared(ReadOnlySpan<uint> words, bool ordered, out ulong source, out ulong sourceBytes)
+    {
+        var preparation = CheckPrepared(words, ordered, out source, out sourceBytes);
+        if (preparation == TexturePreparation.Ready)
+            return true;
+        if (!ordered)
+            GnmImageProfile.Unprepared(preparation);
+        return false;
+    }
+
+    private TexturePreparation CheckPrepared(ReadOnlySpan<uint> words, bool ordered, out ulong source, out ulong sourceBytes)
+    {
+        source = sourceBytes = 0;
+        if (words.Length < 2)
+            return TexturePreparation.Ready;
+        var address = ((ulong)words[0] | ((ulong)words[1] & 63) << 32) << 8;
+        var prepared = _preparedKeys.TryGetValue(address, out var key);
+        if (!prepared && !_shadowKeys.TryGetValue(address, out key))
+            return TexturePreparation.Ready;
+        var geometry = GeometryOf(key);
+        source = key.Source;
+        sourceBytes = geometry.SourceBytes;
+        if (geometry.Failure is not null)
+            return TexturePreparation.Geometry;
+        if (_gpuShadows.TryGetValue(key, out var gpuShadow) && gpuShadow.Address == address)
+        {
+            if (GnmGpuWrites.Buffers is not { } buffers)
+                return prepared ? TexturePreparation.GpuShadowChanged : TexturePreparation.Ready;
+            if (gpuShadow.Source.Buffer is not { } owner)
+                return TexturePreparation.GpuShadowChanged;
+            var unchanged = ordered
+                ? !buffers.ContentsChangedSince(key.Source, gpuShadow.Geometry.SourceBytes, gpuShadow.Source)
+                : owner.GpuWrites == gpuShadow.Source.Writes;
+            return unchanged ? TexturePreparation.Ready : TexturePreparation.GpuShadowChanged;
+        }
+        if (GnmGpuWrites.Overlap(key.Source, geometry.SourceBytes))
+            return TexturePreparation.GpuWritten;
+        if (!_shadows.TryGetValue(key, out var current) || current.Address != address)
+            return TexturePreparation.NoShadow;
+        var epoch = Volatile.Read(ref _epoch);
+        if (current.Epoch == epoch)
+            return TexturePreparation.Ready;
+        if (TrySample(key.Source, geometry.SourceBytes, out var sample) && current.Sample == sample &&
+            epoch - current.Verified < current.Interval && _shadows.TryUpdate(key, current with { Epoch = epoch }, current))
+            return TexturePreparation.Ready;
+        return TexturePreparation.StaleEpoch;
     }
 
     private Geometry GeometryOf(in ShadowKey key) => _geometries.GetOrAdd(
@@ -220,7 +271,7 @@ internal sealed class GcnSampledImageDetiler(ICpuMemory memory, Func<ulong, ulon
             _shadows.TryUpdate(key, cached with
             {
                 Sample = sample, Epoch = epoch, Verified = epoch,
-                Interval = Math.Min(cached.Interval * 2, MaxVerifyInterval),
+                Interval = NextVerifyInterval(key, cached.Interval),
             }, cached))
         {
             destination = cached.Address;
@@ -391,7 +442,7 @@ internal sealed class GcnSampledImageDetiler(ICpuMemory memory, Func<ulong, ulon
             _shadows[key] = shadow with { Sample = sample, Content = content, Epoch = epoch, Verified = epoch, Interval = 1 };
             destination = shadow.Address;
             if (moved)
-                GcnImageDescriptor.InvalidateNormalizations();
+                GcnImageDescriptor.InvalidateNormalizations(NormalizationInvalidation.DetileMoved);
             return true;
         }
     }

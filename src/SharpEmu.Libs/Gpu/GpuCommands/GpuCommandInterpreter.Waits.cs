@@ -7,6 +7,8 @@ namespace SharpEmu.Libs.Gpu.GpuCommands;
 
 public sealed partial class GpuCommandInterpreter
 {
+    internal static long RelaxedWaitHits;
+    internal static long RelaxedWaitFallbacks;
     private const uint RewindValidBit = 1u << 31;
     private const uint RewindKnownBits = 0x8100_0000u;
 
@@ -34,10 +36,25 @@ public sealed partial class GpuCommandInterpreter
             Suspend();
             return;
         }
-        if (!deferred) value = ReadWaitOperand(address, is64Bit);
+        var stale = false;
+        if (!deferred) value = ReadWaitOperand(address, is64Bit, allowStale: true, out stale);
         if (!WaitOperation.TryCompare(value, reference, mask, compareFunction, out var satisfied))
         {
             throw _host.Fatal($"The wait compare function is unknown: function={compareFunction} address=0x{address:X16}.");
+        }
+
+        if (stale)
+        {
+            if (satisfied)
+            {
+                Interlocked.Increment(ref RelaxedWaitHits);
+            }
+            else
+            {
+                Interlocked.Increment(ref RelaxedWaitFallbacks);
+                value = ReadWaitOperand(address, is64Bit, allowStale: false, out _);
+                _ = WaitOperation.TryCompare(value, reference, mask, compareFunction, out satisfied);
+            }
         }
 
         if (!satisfied && TryReadOwnWrite(address, is64Bit, out var ownValue))

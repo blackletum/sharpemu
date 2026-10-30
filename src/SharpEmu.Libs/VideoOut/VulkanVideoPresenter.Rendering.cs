@@ -495,8 +495,12 @@ internal static unsafe partial class VulkanVideoPresenter
             return checked(buffer.DeviceAddress + offset);
         }
 
-        public void PrepareBufferAllocations(ReadOnlySpan<SharpEmu.HLE.GpuMemory.GuestSpan> ranges) =>
+        public void PrepareBufferAllocations(ReadOnlySpan<SharpEmu.HLE.GpuMemory.GuestSpan> ranges)
+        {
+            if (_worker)
+                throw Serial("tessellation device addresses");
             _bufferCache.PrepareBufferAllocations(ranges);
+        }
 
         public BufferBinding ObtainBuffer(ulong address, ulong size, bool isWritten)
         {
@@ -991,6 +995,15 @@ internal static unsafe partial class VulkanVideoPresenter
                 }
             }
 
+            if (state.DepthBoundsTestEnabled && _presenter._supportsDepthBounds && (!known || !last.DepthBoundsTestEnabled ||
+                state.DepthMinBounds != last.DepthMinBounds || state.DepthMaxBounds != last.DepthMaxBounds))
+            {
+                using (RenderPhaseProfile.MeasureDetail(RenderPhaseProfile.Phase.VulkanCommands))
+                {
+                    _vk.CmdSetDepthBounds(command, state.DepthMinBounds, state.DepthMaxBounds);
+                }
+            }
+
             if (_presenter._colorWriteEnableApi is { } colorWriteEnable && state.ColorWriteCount != 0)
             {
                 var enables = stackalloc Bool32[RenderingState.ColorAttachmentCapacity];
@@ -1456,6 +1469,33 @@ internal static unsafe partial class VulkanVideoPresenter
             }
             TraceOcclusionDraw();
             _gpuCommandProfile?.WriteMarker(command, VulkanCommandProfile.IntervalKind.DrawIndexed,
+                _boundGraphicsPipeline?.Id ?? 0, 0, 0);
+            CountDraw();
+        }
+
+        void IRenderHost.DrawIndirect(BufferBinding arguments)
+        {
+            using var profileScope = RenderPhaseProfile.MeasureDetail(RenderPhaseProfile.Phase.DrawRecording);
+            var command = BeginBatchedGuestCommands();
+            if (_boundGraphicsPipeline is { RectangleList: true } entry)
+            {
+                if (CanDrawNativeRectangles)
+                {
+                    BindNativeRectangleList(entry, command);
+                }
+                else
+                {
+                    BindRectangleListVariant(entry, strip: false, command);
+                }
+            }
+
+            _gpuCommandProfile?.WriteMarker(command, VulkanCommandProfile.IntervalKind.Preparation);
+            using (RenderPhaseProfile.MeasureDetail(RenderPhaseProfile.Phase.VulkanCommands))
+            {
+                _vk.CmdDrawIndirect(command, new VkBuffer(arguments.Handle), arguments.Offset, 1, 16);
+            }
+            TraceOcclusionDraw();
+            _gpuCommandProfile?.WriteMarker(command, VulkanCommandProfile.IntervalKind.Draw,
                 _boundGraphicsPipeline?.Id ?? 0, 0, 0);
             CountDraw();
         }

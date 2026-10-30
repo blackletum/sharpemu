@@ -114,6 +114,16 @@ public sealed partial class GpuCommandInterpreter
 
     private void DrawIndirectArguments(ulong packetAddress, uint opcode, ulong argumentsAddress, bool indexed, int startInstanceUserData)
     {
+        if (!indexed && _host.ResolvesIndirectDrawOnGpu)
+        {
+            _deferredInstanceCountAddress = argumentsAddress + 4;
+            if (Rendering.ScissorTrace.Instance is { Active: true } gpuTrace)
+                gpuTrace.DrawIssued(TypedRegisters, SubmitId, QueueId, packetAddress);
+            _host.DrawAuto(SubmitId, new DrawAutoArguments(packetAddress, opcode, uint.MaxValue, 1, 0, 0,
+                DrawOffsetSource.IndirectArguments, startInstanceUserData, argumentsAddress));
+            return;
+        }
+
         if (!indexed)
         {
             var vertexCount = ReadDword(argumentsAddress);

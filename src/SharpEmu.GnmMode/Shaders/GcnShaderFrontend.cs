@@ -71,6 +71,12 @@ public sealed partial class GcnShaderFrontend : IShaderFrontend
 
     public bool PrepareTexture(ReadOnlySpan<uint> words) => _imageDetiler?.Prepare(words) ?? true;
 
+    public bool IsTexturePrepared(ReadOnlySpan<uint> words, bool ordered, out ulong source, out ulong sourceBytes)
+    {
+        source = sourceBytes = 0;
+        return _imageDetiler?.IsPrepared(words, ordered, out source, out sourceBytes) ?? true;
+    }
+
     public bool TryResolveImageCopy(CpuContext context, RegisteredShader shader, ReadOnlySpan<uint> userData,
         ComputeInputInfo input, Gen5ComputeSystemRegisters systemRegisters, uint x, uint y, uint z,
         out ImageRequest source, out ImageRequest destination) =>

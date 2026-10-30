@@ -30,17 +30,27 @@ public sealed class SliceRecordingTests : IClassFixture<HeadlessVulkanFixture>
     public SliceRecordingTests(HeadlessVulkanFixture fixture) => _vulkan = fixture.Vulkan;
 
     [Fact]
-    public void GnmImagePreparationRefusesARecordingWorkerBeforeTouchingGpuState()
+    public void GnmImagePreparationRefusesARecordingWorkerBeforeTouchingGpuStateWhileATextureAwaitsItsDetile()
     {
+        const ulong Source = 0x1_0000_0000, Scratch = 0x1_0000_8000;
         var host = RuntimeHelpers.GetUninitializedObject(PresenterUnderTest.RecordingHostType);
         SetHostField(host, "_worker", true);
+        var frontend = new GcnShaderFrontend(new FakeCpuMemory(Source, 0x10000), _ => Scratch);
+        uint[] words = [(uint)(Source >> 8), (4u << 20) | (7u << 26), 7u | (7u << 14),
+            (9u << 28) | (13u << 20) | 0xFAC, 7u << 13, 0, 0, 0];
+        var reserved = frontend.NormalizeImageForResolution(words, ShaderStage.Pixel, 123, "test-reserve", true);
+        Assert.False(frontend.IsTexturePrepared(reserved, ordered: false, out var source, out var sourceBytes));
+        Assert.Equal(Source, source);
+        Assert.NotEqual(0UL, sourceBytes);
+        Assert.True(frontend.IsTexturePrepared(new uint[8], ordered: false, out _, out var nullBytes));
+        Assert.Equal(0UL, nullBytes);
         var program = new ShaderProgramInfo
         {
-            Frontend = new GcnShaderFrontend(new FakeCpuMemory(0x1_0000_0000, 0x10000)),
+            Frontend = frontend,
             Resources = new SpecializedResourceInfo(),
             Bindings = new BindingLayout(),
         };
-        var stage = new ShaderStageResources(program, new ResourceSnapshot { Images = [new uint[8]] });
+        var stage = new ShaderStageResources(program, new ResourceSnapshot { Images = [reserved] });
 
         var exception = Assert.Throws<SerialRequiredException>(() => ((IRenderHost)host).PrepareBindings(stage));
 

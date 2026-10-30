@@ -38,10 +38,10 @@ public static class GcnImageDescriptor
 
     internal static long NormalizationVersion => Volatile.Read(ref _normalizationVersion);
 
-    internal static void InvalidateNormalizations()
+    internal static void InvalidateNormalizations(NormalizationInvalidation reason)
     {
         Interlocked.Increment(ref _normalizationVersion);
-        GnmImageProfile.NormalizationInvalidated();
+        GnmImageProfile.NormalizationInvalidated(reason);
     }
 
     internal static bool IsGpuDepthAddress(ulong address) => DepthTargets.ContainsKey(address);
@@ -70,7 +70,7 @@ public static class GcnImageDescriptor
         LinearPitches.Clear();
         DepthTargets.Clear();
         ReportedDepthCopies.Clear();
-        InvalidateNormalizations();
+        InvalidateNormalizations(NormalizationInvalidation.Reset);
     }
 
     internal static void ObserveDepthTarget(ulong guestAddress, ulong hostAddress, uint width, uint height, uint layers,
@@ -82,7 +82,7 @@ public static class GcnImageDescriptor
         if (GnmDiagnostics.Log && previous == default)
             Console.Error.WriteLine($"[GNMMODE][TRACE] GPU depth target address=0x{guestAddress:X} host=0x{hostAddress:X} extent={width}x{height} layers={layers} format={format} guestSize=0x{guestSize:X} hostSize=0x{hostSize:X}.");
         DepthTargets[guestAddress] = layout;
-        InvalidateNormalizations();
+        InvalidateNormalizations(NormalizationInvalidation.Depth);
     }
 
     internal static void ObserveColorTarget(ulong guestAddress, in ColorTargetWords target, uint pitch, uint height, uint tile)
@@ -96,7 +96,7 @@ public static class GcnImageDescriptor
             if (target.BaseAddress != guestAddress)
                 changed |= StoreColorTarget(target.BaseAddress, layout);
             if (changed)
-                InvalidateNormalizations();
+                InvalidateNormalizations(NormalizationInvalidation.Color);
         }
     }
 
@@ -131,7 +131,7 @@ public static class GcnImageDescriptor
         sourceRequest = resolved.Request;
         destinationRequest = target.Request;
         if (ColorTargets.TryAdd(destination, to))
-            InvalidateNormalizations();
+            InvalidateNormalizations(NormalizationInvalidation.ColorCopy);
         return true;
     }
 
@@ -167,7 +167,7 @@ public static class GcnImageDescriptor
         sourceRequest = DepthCopyRequest(depth.HostAddress, depth.HostSize);
         destinationRequest = DepthCopyRequest(target.HostAddress, target.HostSize);
         if (DepthTargets.TryAdd(destination, target))
-            InvalidateNormalizations();
+            InvalidateNormalizations(NormalizationInvalidation.DepthCopy);
         return true;
     }
 
@@ -322,7 +322,7 @@ public static class GcnImageDescriptor
                 if (!allowPreparation)
                     throw new SerialResolveRequiredException("gcn linear image layout");
                 LinearPitches[addressBase] = layout;
-                InvalidateNormalizations();
+                InvalidateNormalizations(NormalizationInvalidation.Linear);
             }
         }
         else if (tile != 13 && !colorTarget && !depthTarget)
@@ -332,7 +332,7 @@ public static class GcnImageDescriptor
                 if (!allowPreparation)
                     throw new SerialResolveRequiredException("gcn linear image layout");
                 if (LinearPitches.TryRemove(addressBase, out _))
-                    InvalidateNormalizations();
+                    InvalidateNormalizations(NormalizationInvalidation.Linear);
             }
         }
 

@@ -10,6 +10,7 @@ using SharpEmu.HLE.Diagnostics;
 using SharpEmu.HLE.GpuMemory;
 using SharpEmu.Libs.Gpu.Buffers;
 using SharpEmu.Libs.Gpu.Images;
+using SharpEmu.Libs.Gpu.Pipelines;
 using SharpEmu.Libs.Gpu.Rendering;
 using SharpEmu.Libs.Gpu.Scheduling;
 using SharpEmu.Libs.Gpu.Vulkan;
@@ -32,6 +33,60 @@ internal static unsafe partial class VulkanVideoPresenter
     private static readonly ThreadCounter _segmentsEmpty = new();
     private static readonly ThreadCounter _slicesSerial = new();
     private static readonly ThreadCounter _slicesInvalid = new();
+    private static readonly ThreadCounter _frontendTexturesStale = new();
+
+    internal enum RenderReadSource
+    {
+        Wait,
+        Operand,
+        Memory,
+        Word,
+    }
+
+    internal static class RoundTripTotals
+    {
+        public const int ReadKinds = 8;
+        public static long FlipCount;
+        public static long FlipTicks;
+        public static long ReadCount;
+        public static long ReadTicks;
+        public static readonly long[] KindCounts = new long[ReadKinds];
+        public static readonly long[] KindTicks = new long[ReadKinds];
+        private static long _slowestTicks;
+        private static long _slowestAddress;
+        private static int _slowestKind;
+        private static string _slowestSite = "";
+
+        public static string KindName(int kind) => ((RenderReadSource)(kind / 2)).ToString().ToLowerInvariant() + (kind % 2 == 0 ? "/publication" : "/gpu_dirty");
+
+        public static void NoteRead(int kind, long ticks, ulong address, string site)
+        {
+            Interlocked.Increment(ref KindCounts[kind]);
+            Interlocked.Add(ref KindTicks[kind], ticks);
+            var slowest = Volatile.Read(ref _slowestTicks);
+            while (ticks > slowest)
+            {
+                var previous = Interlocked.CompareExchange(ref _slowestTicks, ticks, slowest);
+                if (previous == slowest)
+                {
+                    Volatile.Write(ref _slowestAddress, (long)address);
+                    Volatile.Write(ref _slowestKind, kind);
+                    Volatile.Write(ref _slowestSite, site);
+                    break;
+                }
+
+                slowest = previous;
+            }
+        }
+
+        public static (long Ticks, ulong Address, int Kind, string Site) TakeSlowest()
+        {
+            var address = (ulong)Volatile.Read(ref _slowestAddress);
+            var kind = Volatile.Read(ref _slowestKind);
+            var site = Volatile.Read(ref _slowestSite);
+            return (Interlocked.Exchange(ref _slowestTicks, 0), address, kind, site);
+        }
+    }
     private static readonly ThreadCounter _sliceItems = new();
     private static readonly ThreadCounter _serialItems = new();
     private static readonly ThreadCounter _sliceWaitTicks = new();
@@ -72,7 +127,7 @@ internal static unsafe partial class VulkanVideoPresenter
         FormattableString.Invariant($"[PERF][SLICES] slices={_slicesRecorded.Take()} segments={_segmentsRecorded.Take()} empty={_segmentsEmpty.Take()} uses_shared={_usesShared.Take()} attachments_kept={RecordingHost.TakeAttachmentsKept()} worker_queries={RecordingHost.TakeWorkerQueries()} native_rechecks_failed={_nativeColorRechecksFailed.Take()} ") +
         SharpEmu.Libs.Gpu.Rendering.RenderRecorder.TakeInPlaceReport() + FormattableString.Invariant($" textures_kept={RecordingHost.TakeTexturesKept()} ") + RecordingHost.TakeTableReport() +
         FormattableString.Invariant($"bda_sweeps={Interlocked.Exchange(ref GuestBufferCache.BdaSweeps, 0)}/skipped:{Interlocked.Exchange(ref GuestBufferCache.BdaSweepsSkipped, 0)} ") +
-        FormattableString.Invariant($"serial_cuts={_slicesSerial.Take()} invalid={_slicesInvalid.Take()} ") +
+        FormattableString.Invariant($"serial_cuts={_slicesSerial.Take()} invalid={_slicesInvalid.Take()} frontend_textures_stale={_frontendTexturesStale.Take()} ") +
         FormattableString.Invariant($"slice_items={_sliceItems.Take()} serial_items={_serialItems.Take()} join_wait_ms={_sliceWaitTicks.Take() * 1000.0 / System.Diagnostics.Stopwatch.Frequency:F1} ") +
         FormattableString.Invariant($"image_barriers={ImageAccessState.Barriers.Take()}/elided:{ImageAccessState.BarriersElided.Take()} ") +
         FormattableString.Invariant($"relay_in_wait={_relayInWait.Take()}/{_relayInWaitTicks.Take() * 1000.0 / System.Diagnostics.Stopwatch.Frequency:F1}ms ") +
@@ -233,6 +288,28 @@ internal static unsafe partial class VulkanVideoPresenter
 
             return false;
         }
+
+        public readonly List<(IShaderFrontend Frontend, uint[] Words)> FrontendTextures = new();
+
+        public bool WritesImageRange(GuestSpan range)
+        {
+            if (WritesRange(range))
+            {
+                return true;
+            }
+
+            foreach (var use in Images)
+            {
+                var data = use.Request.Description.Data;
+                if (use.Request.Role is ImageRole.ColorTarget or ImageRole.DepthTarget or ImageRole.StorageImage &&
+                    data.Address < range.Address + range.Size && range.Address < data.Address + data.Size)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
         public ulong LookupGeneration;
         public long MetadataGeneration;
         public IReadOnlyList<GuestSpan>? BdaSpans;
@@ -304,6 +381,7 @@ internal static unsafe partial class VulkanVideoPresenter
 
         private void Run(RecordingHost host)
         {
+            SharpEmu.HLE.Host.HostLaneReservation.ApplyToHostWorkerThread();
             RenderPhaseProfile.AttachResolveWorker();
             SubmissionScheduler.MarkReadOnlyThread(static operation => new SerialRequiredException("unguarded " + operation));
             while (true)
@@ -427,6 +505,9 @@ internal static unsafe partial class VulkanVideoPresenter
             var totals = _roundTrips.GetOrAdd(caller, static _ => new long[2]);
             Interlocked.Increment(ref totals[0]);
             Interlocked.Add(ref totals[1], ticks);
+            var flip = caller == "PrepareCpuFlip";
+            Interlocked.Increment(ref flip ? ref RoundTripTotals.FlipCount : ref RoundTripTotals.ReadCount);
+            Interlocked.Add(ref flip ? ref RoundTripTotals.FlipTicks : ref RoundTripTotals.ReadTicks, ticks);
         }
 
         internal static void NoteJoin(long started) => _joinTicks.Add(System.Diagnostics.Stopwatch.GetTimestamp() - started);
@@ -608,6 +689,15 @@ internal static unsafe partial class VulkanVideoPresenter
         private bool ValidateSegment(RenderSlice slice, SliceSegment segment)
         {
             var requests = segment.Requests;
+            foreach (var (frontend, words) in requests.FrontendTextures)
+            {
+                if (!frontend.IsTexturePrepared(words, ordered: true, out _, out _))
+                {
+                    _frontendTexturesStale.Increment();
+                    return false;
+                }
+            }
+
             var started = System.Diagnostics.Stopwatch.GetTimestamp();
             var valid = _imageCache.ValidateSliceImages(requests.Images, requests.LookupGeneration, requests.MetadataGeneration);
             var imagesDone = System.Diagnostics.Stopwatch.GetTimestamp();

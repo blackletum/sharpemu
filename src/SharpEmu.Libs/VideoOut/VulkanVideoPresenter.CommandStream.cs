@@ -510,25 +510,42 @@ internal static unsafe partial class VulkanVideoPresenter
             public string DescribeReadRange(ulong address, ulong size) => inner.DescribeReadRange(address, size);
         }
 
+        private static string ReadSite()
+        {
+            foreach (var frame in new System.Diagnostics.StackTrace(2, false).GetFrames())
+            {
+                if (frame.GetMethod() is { DeclaringType: { } type } method &&
+                    type.Name.StartsWith(nameof(SharpEmu.Libs.Gpu.GpuCommands.GpuCommandInterpreter), StringComparison.Ordinal) &&
+                    method.Name is not ("ReadDword" or "ReadQword" or "ReadBytes" or "ReadWaitOperand"))
+                {
+                    return method.Name;
+                }
+            }
+
+            return "unknown";
+        }
+
         // A read the render thread runs after everything queued before it, for the command thread.
-        private bool ReadOnRenderThread(ulong address, Span<byte> destination, bool operand)
+        private bool ReadOnRenderThread(ulong address, Span<byte> destination, bool operand, RenderReadSource source, bool publication)
         {
             var started = System.Diagnostics.Stopwatch.GetTimestamp();
             var buffer = new byte[destination.Length];
             var read = _commandThread!.Run(() => operand ? TryReadGuestOperand(address, buffer) : TryReadGuest(address, buffer));
             buffer.CopyTo(destination);
-            Diagnostics.CommandThreadTally.NoteRoundTrip(System.Diagnostics.Stopwatch.GetTimestamp() - started);
+            var elapsed = System.Diagnostics.Stopwatch.GetTimestamp() - started;
+            Diagnostics.CommandThreadTally.NoteRoundTrip(elapsed);
+            RoundTripTotals.NoteRead((int)source * 2 + (publication ? 0 : 1), elapsed, address, ReadSite());
             return read;
         }
 
         // Command memory and polled labels: GPU-written pages go through the render thread, the
         // rest is read here with the stream's queued stores applied.
-        private bool ReadOnCommandThread(ulong address, Span<byte> destination)
+        private bool ReadOnCommandThread(ulong address, Span<byte> destination, RenderReadSource source = RenderReadSource.Memory)
         {
             var size = (ulong)destination.Length;
             if (HasPendingMemoryPublication(address, size))
             {
-                return ReadOnRenderThread(address, destination, operand: false);
+                return ReadOnRenderThread(address, destination, operand: false, source, publication: true);
             }
 
             if (IsCleanReadPage(address, size) && TryReadAliasBytes(address, destination))
@@ -550,7 +567,7 @@ internal static unsafe partial class VulkanVideoPresenter
             AwaitPendingGpuWrite(address, size);
             if (_bufferCache.MayHaveGpuDirtyPages(address, size) && _bufferCache.HasGpuDirtyBytes(address, size))
             {
-                return ReadOnRenderThread(address, destination, operand: false);
+                return ReadOnRenderThread(address, destination, operand: false, source, publication: false);
             }
 
             if (!thread.ReadOverlay(address, destination))
@@ -577,7 +594,30 @@ internal static unsafe partial class VulkanVideoPresenter
             (_translation.PendingWrites is { } pending && pending.TryGetPending(address, size, out _)) || _commandThread!.HasShadow(address, size);
 
         public bool TryReadGuestWaitOperand(ulong address, Span<byte> destination) =>
-            OnCommandThread ? ReadOnCommandThread(address, destination) : TryReadGuestOperand(address, destination);
+            OnCommandThread ? ReadOnCommandThread(address, destination, RenderReadSource.Wait) : TryReadGuestOperand(address, destination);
+
+        internal static readonly bool ReadbacksOff =
+            string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_GPU_READBACKS"), "off", StringComparison.OrdinalIgnoreCase);
+
+        public bool TryReadGuestWaitOperand(ulong address, Span<byte> destination, bool allowStale, out bool stale)
+        {
+            stale = false;
+            if (allowStale && ReadbacksOff && OnCommandThread && TryReadStaleOnCommandThread(address, destination))
+            {
+                stale = true;
+                return true;
+            }
+
+            return TryReadGuestWaitOperand(address, destination);
+        }
+
+        private bool TryReadStaleOnCommandThread(ulong address, Span<byte> destination)
+        {
+            var size = (ulong)destination.Length;
+            var needsRenderThread = HasPendingMemoryPublication(address, size) ||
+                _bufferCache.MayHaveGpuDirtyPages(address, size) && _bufferCache.HasGpuDirtyBytes(address, size);
+            return needsRenderThread && _commandThread!.ReadOverlay(address, destination);
+        }
 
         public bool TryReadGuestOperand(ulong address, Span<byte> destination)
         {
@@ -588,7 +628,7 @@ internal static unsafe partial class VulkanVideoPresenter
 
             if (OnCommandThread)
             {
-                return ReadOnCommandThread(address, destination);
+                return ReadOnCommandThread(address, destination, RenderReadSource.Operand);
             }
             return TryReadGuest(address, destination);
         }

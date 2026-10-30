@@ -882,6 +882,7 @@ public sealed class SubmissionScheduler : IGpuTickScheduler, IDisposable
 
     private void RunPriorityWorker()
     {
+        SharpEmu.HLE.Host.HostLaneReservation.ApplyToHostWorkerThread();
         for (;;)
         {
             TickWork operation;

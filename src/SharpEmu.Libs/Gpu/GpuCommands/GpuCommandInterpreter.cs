@@ -599,13 +599,13 @@ public sealed partial class GpuCommandInterpreter
         return BinaryPrimitives.ReadUInt64LittleEndian(bytes);
     }
 
-    private ulong ReadWaitOperand(ulong address, bool is64Bit)
+    private ulong ReadWaitOperand(ulong address, bool is64Bit, bool allowStale, out bool stale)
     {
         RenderPhaseProfile.RecordCommandRead(is64Bit ? RenderPhaseProfile.CommandReadKind.Operand64 : RenderPhaseProfile.CommandReadKind.Operand32,
             is64Bit ? sizeof(ulong) : sizeof(uint));
         Span<byte> bytes = stackalloc byte[sizeof(ulong)];
         var size = is64Bit ? sizeof(ulong) : sizeof(uint);
-        if (!_host.TryReadGuestWaitOperand(address, bytes[..size]))
+        if (!_host.TryReadGuestWaitOperand(address, bytes[..size], allowStale, out stale))
         {
             throw _host.Fatal($"The command stream cannot read guest memory: address=0x{address:X16} size={size}.");
         }

@@ -42,7 +42,8 @@ public readonly record struct DrawAutoArguments(
     uint FirstVertex,
     uint FirstInstance,
     DrawOffsetSource OffsetSource,
-    int StartInstanceUserData = -1);
+    int StartInstanceUserData = -1,
+    ulong IndirectArgumentsAddress = 0);
 
 public enum EndOfPipeWriteKind
 {
@@ -100,6 +101,11 @@ public interface ICommandStreamHost
     // Reads the label a wait polls. A stale value only suspends the wait until a retry, so a host
     // that runs work behind the stream need not complete it first.
     bool TryReadGuestWaitOperand(ulong address, Span<byte> destination) => TryReadGuestOperand(address, destination);
+    bool TryReadGuestWaitOperand(ulong address, Span<byte> destination, bool allowStale, out bool stale)
+    {
+        stale = false;
+        return TryReadGuestWaitOperand(address, destination);
+    }
 
     // Draws resolve ahead of the stream on this many worker threads; zero resolves them on the stream thread.
     int ResolveWorkerCount => 0;

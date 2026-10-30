@@ -1030,6 +1030,21 @@ SPDX-License-Identifier: GPL-2.0-or-later
                                     HorizontalContentAlignment="Left"
                                     VerticalAlignment="Center" />
                         </local:SettingRow>
+
+                        <local:SettingRow x:Name="GameGpuReadbacksRow"
+                                          Classes="optionRow"
+                                          Label="{Binding [Options.GpuReadbacks.Label],
+                                                          Source={x:Static local:Localization.Instance},
+                                                          x:CompileBindings=False}"
+                                          Description="{Binding [Options.GpuReadbacks.Desc],
+                                                                Source={x:Static local:Localization.Instance},
+                                                                x:CompileBindings=False}">
+                          <ComboBox x:Name="GameGpuReadbacksBox"
+                                    Classes="optionValue"
+                                    ItemTemplate="{StaticResource LocalizedChoiceTemplate}"
+                                    HorizontalContentAlignment="Left"
+                                    VerticalAlignment="Center" />
+                        </local:SettingRow>
                         <local:SettingRow x:Name="GameOverlayEnabledRow"
                                           Classes="optionRow"
                                           Label="{Binding [Options.OverlayEnabled.Label], Source={x:Static local:Localization.Instance}, x:CompileBindings=False}"
@@ -1675,6 +1690,16 @@ SPDX-License-Identifier: GPL-2.0-or-later
                                         Label="{Binding [Options.Hdr.Label], Source={x:Static local:Localization.Instance}}"
                                         Description="{Binding [Options.Hdr.Desc], Source={x:Static local:Localization.Instance}}">
                         <ComboBox x:Name="HdrModeBox"
+                                  Classes="optionValue"
+                                  ItemTemplate="{StaticResource LocalizedChoiceTemplate}"
+                                  HorizontalContentAlignment="Left"
+                                  VerticalAlignment="Center" />
+                      </local:SettingRow>
+                      <local:SettingRow x:Name="GpuReadbacksRow"
+                                        Classes="optionRow"
+                                        Label="{Binding [Options.GpuReadbacks.Label], Source={x:Static local:Localization.Instance}}"
+                                        Description="{Binding [Options.GpuReadbacks.Desc], Source={x:Static local:Localization.Instance}}">
+                        <ComboBox x:Name="GpuReadbacksBox"
                                   Classes="optionValue"
                                   ItemTemplate="{StaticResource LocalizedChoiceTemplate}"
                                   HorizontalContentAlignment="Left"

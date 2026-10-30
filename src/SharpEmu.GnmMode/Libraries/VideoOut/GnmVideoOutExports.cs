@@ -59,7 +59,7 @@ public static class GnmVideoOutExports
             _registeredSources.Clear();
             _displayTargets.Clear();
         }
-        GcnImageDescriptor.InvalidateNormalizations();
+        GcnImageDescriptor.InvalidateNormalizations(NormalizationInvalidation.Display);
     }
 
     private static ICpuMemory UnwrapMemory(ICpuMemory memory)
@@ -156,7 +156,7 @@ public static class GnmVideoOutExports
                         _displayTargets[destination] = target;
                 }
             }
-            GcnImageDescriptor.InvalidateNormalizations();
+            GcnImageDescriptor.InvalidateNormalizations(NormalizationInvalidation.Display);
         }
         var originalAttribute = context[CpuRegister.R8];
         if (!context.TryReadUInt32(originalAttribute, out var originalFormat))

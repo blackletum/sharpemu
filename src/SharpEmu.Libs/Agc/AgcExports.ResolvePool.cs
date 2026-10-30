@@ -336,6 +336,7 @@ public static partial class AgcExports
 
             private void Run(Worker worker)
             {
+                SharpEmu.HLE.Host.HostLaneReservation.ApplyToHostWorkerThread();
                 RenderPhaseProfile.AttachResolveWorker();
                 foreach (var work in worker.Queue.GetConsumingEnumerable())
                 {

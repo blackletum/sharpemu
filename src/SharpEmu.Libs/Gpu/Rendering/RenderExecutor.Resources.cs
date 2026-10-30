@@ -8,6 +8,7 @@ namespace SharpEmu.Libs.Gpu.Rendering;
 public sealed partial class RenderExecutor
 {
     internal const ulong IndexedIndirectArgumentsSize = 20;
+    internal const ulong AutoIndirectArgumentsSize = 16;
 
     private bool DrawWritesMemory(ShaderStageResources stage) =>
         stage.Program is { } program &&

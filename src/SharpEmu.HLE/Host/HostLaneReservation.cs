@@ -80,6 +80,20 @@ public static unsafe class HostLaneReservation
         }
     }
 
+    private static readonly bool HostWorkersRaised = Environment.GetEnvironmentVariable("SHARPEMU_HOST_WORKER_PRIORITY") != "0";
+
+    public static void ApplyToHostWorkerThread()
+    {
+        if (!Active || !HostWorkersRaised)
+        {
+            return;
+        }
+
+        var thread = GetCurrentThread();
+        _ = SetThreadAffinityMask(thread, (nuint)(GuestMask | FrontEndMask));
+        _ = SetThreadPriority(thread, ThreadPriorityAboveNormal);
+    }
+
     private static List<ulong> SelectCores(int count)
     {
         var selected = new List<ulong>();

@@ -130,6 +130,11 @@ public partial class MainWindow : Window
         LocalizedChoice.FromKey("On", "Common.On"),
         LocalizedChoice.FromKey("Off", "Common.Off"),
     ];
+    private readonly LocalizedChoice[] _gpuReadbackChoices =
+    [
+        LocalizedChoice.FromKey("Full", "Options.GpuReadbacks.Full"),
+        LocalizedChoice.FromKey("Off", "Common.Off"),
+    ];
     private readonly LocalizedChoice[] _binkPlaybackChoices =
     [
         LocalizedChoice.FromKey("Host", "Options.Env.BinkPlayback.Host"),
@@ -399,6 +404,7 @@ public partial class MainWindow : Window
             }
         };
         HdrModeBox.SelectionChanged += (_, _) => _settings.HdrMode = SelectedComboText(HdrModeBox, "Auto");
+        GpuReadbacksBox.SelectionChanged += (_, _) => _settings.GpuReadbacks = SelectedComboText(GpuReadbacksBox, "Full");
         OverlayEnabledToggle.IsCheckedChanged += (_, _) => _settings.OverlayEnabled = OverlayEnabledToggle.IsChecked == true;
         OverlayModeBox.SelectionChanged += (_, _) => _settings.OverlayMode = SelectedComboText(OverlayModeBox, "TitleBar");
         OverlayCornerBox.SelectionChanged += (_, _) => _settings.OverlayCorner = SelectedComboText(OverlayCornerBox, "TopRight");
@@ -1454,6 +1460,7 @@ public partial class MainWindow : Window
         WindowModeBox.ItemsSource = _windowModeChoices;
         ScalingModeBox.ItemsSource = _scalingModeChoices;
         HdrModeBox.ItemsSource = _hdrModeChoices;
+        GpuReadbacksBox.ItemsSource = _gpuReadbackChoices;
         BinkPlaybackBox.ItemsSource = _binkPlaybackChoices;
         OverlayModeBox.ItemsSource = _overlayModeChoices;
         OverlayCornerBox.ItemsSource = _overlayCornerChoices;
@@ -1468,6 +1475,7 @@ public partial class MainWindow : Window
         RefreshChoices(_windowModeChoices);
         RefreshChoices(_scalingModeChoices);
         RefreshChoices(_hdrModeChoices);
+        RefreshChoices(_gpuReadbackChoices);
         RefreshChoices(_binkPlaybackChoices);
         RefreshChoices(_overlayModeChoices);
         RefreshChoices(_overlayCornerChoices);
@@ -1541,6 +1549,7 @@ public partial class MainWindow : Window
             SharpEmu.Libs.SharpEmuPaths.CanWriteExecutableDirectory();
         PortableDataToggle.IsChecked = SharpEmu.Libs.SharpEmuPaths.IsPortableMarkerPresent();
         HdrModeBox.SelectedIndex = ChoiceIndex(_settings.HdrMode, "Auto", "On", "Off");
+        GpuReadbacksBox.SelectedIndex = ChoiceIndex(_settings.GpuReadbacks, "Full", "Off");
         OverlayEnabledToggle.IsChecked = _settings.OverlayEnabled;
         OverlayModeBox.SelectedIndex = ChoiceIndex(_settings.OverlayMode, "Full", "Minimal", "TitleBar");
         OverlayCornerBox.SelectedIndex = ChoiceIndex(_settings.OverlayCorner, "TopLeft", "TopRight", "BottomRight", "BottomLeft");
@@ -3208,6 +3217,11 @@ public partial class MainWindow : Window
                 "0.###",
                 System.Globalization.CultureInfo.InvariantCulture));
         _appliedEnvironmentVariables.Add("SHARPEMU_RENDER_SCALE");
+
+        Environment.SetEnvironmentVariable(
+            "SHARPEMU_GPU_READBACKS",
+            string.Equals(effective.GpuReadbacks, "Off", StringComparison.OrdinalIgnoreCase) ? "off" : "full");
+        _appliedEnvironmentVariables.Add("SHARPEMU_GPU_READBACKS");
 
         foreach (var entry in customEnvironment)
         {

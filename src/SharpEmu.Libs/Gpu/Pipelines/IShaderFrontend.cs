@@ -32,6 +32,11 @@ public interface IShaderFrontend
     TextureRequestResolution ResolveTexture(ReadOnlySpan<uint> words, in ShaderImageShape shape,
         ulong shaderHash, int imageIndex) => ImageRequestBuilders.Texture(words, shape, shaderHash, imageIndex);
     bool PrepareTexture(ReadOnlySpan<uint> words) => true;
+    bool IsTexturePrepared(ReadOnlySpan<uint> words, bool ordered, out ulong source, out ulong sourceBytes)
+    {
+        source = sourceBytes = 0;
+        return true;
+    }
     bool TryResolveImageCopy(CpuContext context, RegisteredShader shader, ReadOnlySpan<uint> userData,
         ComputeInputInfo input, Gen5ComputeSystemRegisters systemRegisters, uint x, uint y, uint z,
         out ImageRequest source, out ImageRequest destination)

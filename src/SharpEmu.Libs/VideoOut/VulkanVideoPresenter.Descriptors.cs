@@ -538,7 +538,7 @@ internal static unsafe partial class VulkanVideoPresenter
 
             var storage = image.ResourceClass == ShaderCompiler.Resources.ImageResourceClass.Storage;
             EnsureBatchedGuestCommands();
-            if (program.Frontend?.PrepareTexture(words) == false)
+            if (!_worker && program.Frontend?.PrepareTexture(words) == false)
                 words = new uint[8];
             var shape = ImageRequestBuilders.ShapeOf(image);
             var key = ImageBindingKey.Of(words, shape);
@@ -785,9 +785,27 @@ internal static unsafe partial class VulkanVideoPresenter
             if (MeshDrawTrace.Active) MeshDrawTrace.Write("stage-binding", $"stage={stage.Program?.Stage} hash=0x{stage.Program?.Hash:X16} shaderBase=0x{stage.ShaderBase:X16} userData={string.Join(",", stage.Resources.UserData.Select(value => value.ToString("X8")))}");
             using var profileScope = RenderPhaseProfile.MeasureDetail(RenderPhaseProfile.Phase.DescriptorPreparation);
             var program = RequireProgram(stage);
-            if (_worker && program.Frontend?.RequiresOrderedImagePreparation == true && stage.Resources.Images.Length != 0)
+            if (_worker && program.Frontend is { RequiresOrderedImagePreparation: true } orderedFrontend)
             {
-                throw Serial("frontend image preparation", resumable: true);
+                foreach (var words in stage.Resources.Images)
+                {
+                    if (!orderedFrontend.IsTexturePrepared(words, ordered: false, out var source, out var sourceBytes))
+                    {
+                        throw Serial("frontend image preparation", resumable: true);
+                    }
+
+                    if (sourceBytes == 0)
+                    {
+                        continue;
+                    }
+
+                    if (Requests.WritesImageRange(new GuestSpan(source, sourceBytes)))
+                    {
+                        throw Serial("frontend image preparation", resumable: true);
+                    }
+
+                    Requests.FrontendTextures.Add((orderedFrontend, words));
+                }
             }
 
             var preparation = RequirePreparation();
@@ -824,7 +842,7 @@ internal static unsafe partial class VulkanVideoPresenter
             }
 
             var frontendReady = true;
-            if (program.Frontend is { RequiresOrderedImagePreparation: true } frontend)
+            if (!_worker && program.Frontend is { RequiresOrderedImagePreparation: true } frontend)
             {
                 foreach (var words in snapshot.Images)
                     frontendReady &= frontend.PrepareTexture(words);

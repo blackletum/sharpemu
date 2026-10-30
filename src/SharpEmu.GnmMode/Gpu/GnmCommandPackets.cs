@@ -80,11 +80,25 @@ internal static class GnmCommandPackets
 
     private sealed class TargetExtents
     {
+        private const int MaxKnownHints = 4096;
+
         public ulong ColorHintAddress = ulong.MaxValue;
         public int ColorHintSlot = -1;
         public ulong DepthHintAddress = ulong.MaxValue;
+        public ulong DepthHintTarget;
         public readonly uint[] Hints = new uint[8];
         public readonly ulong[] GuestAddresses = new ulong[8];
+        public readonly Dictionary<ulong, uint> ColorHints = new();
+        public readonly Dictionary<ulong, uint> DepthHints = new();
+
+        public static void Remember(Dictionary<ulong, uint> hints, ulong address, uint hint)
+        {
+            if (address == 0)
+                return;
+            if (hints.Count >= MaxKnownHints && !hints.ContainsKey(address))
+                hints.Clear();
+            hints[address] = hint;
+        }
     }
 
     private static PacketHandler?[] CreateHandlers()
@@ -305,12 +319,15 @@ internal static class GnmCommandPackets
             {
                 extents.ColorHintAddress = ulong.MaxValue;
                 extents.Hints[extents.ColorHintSlot] = payload[0];
+                TargetExtents.Remember(extents.ColorHints, extents.GuestAddresses[extents.ColorHintSlot], payload[0]);
                 TranslateColorTarget(interpreter, extents, extents.ColorHintSlot);
                 return packet.Length - 1;
             }
             if (packet.PacketAddress == extents.DepthHintAddress)
             {
                 extents.DepthHintAddress = ulong.MaxValue;
+                if (IsValidExtent(payload[0]))
+                    TargetExtents.Remember(extents.DepthHints, extents.DepthHintTarget, payload[0]);
                 ApplyDepthExtent(interpreter, in packet, payload[0]);
                 return packet.Length - 1;
             }
@@ -370,9 +387,15 @@ internal static class GnmCommandPackets
         var offset = RegisterBankLayout.Normalize(payload[0]);
         var normalized = packet with { Header = packet.Header & ~2u };
         var agcHandler = PacketDispatchTable.Opcodes[PacketOpcode.SetContextRegister]!;
+        uint? knownDepthExtent = null;
         if (offset == ContextRegisterOffset.DbZInfo && payload.Length - 1 == DepthSetupValues)
-            Extents.GetOrCreateValue(interpreter).DepthHintAddress =
-                packet.PacketAddress + (packet.Length + DepthHintDistance) * sizeof(uint);
+        {
+            var depthExtents = Extents.GetOrCreateValue(interpreter);
+            depthExtents.DepthHintAddress = packet.PacketAddress + (packet.Length + DepthHintDistance) * sizeof(uint);
+            depthExtents.DepthHintTarget = (ulong)payload[1 + (int)(ContextRegisterOffset.DbZReadBase - ContextRegisterOffset.DbZInfo)] << 8;
+            if (depthExtents.DepthHints.TryGetValue(depthExtents.DepthHintTarget, out var knownDepth))
+                knownDepthExtent = knownDepth;
+        }
         var hasLegacyFields = false;
         for (var index = 1; index < payload.Length; index++)
         {
@@ -472,6 +495,11 @@ internal static class GnmCommandPackets
                 var tiles = payload[index];
                 var xMax = (((tiles & 0x7FFu) + 1u) << 3) - 1u;
                 var yMax = ((((tiles >> 11) & 0x7FFu) + 1u) << 3) - 1u;
+                if (knownDepthExtent is { } known && (known & 0xFFFF) - 1 <= xMax && (known >> 16) - 1 <= yMax)
+                {
+                    xMax = (known & 0xFFFF) - 1;
+                    yMax = (known >> 16) - 1;
+                }
                 fields[0] = ContextRegisterOffset.DbDepthSizeXy;
                 fields[1] = xMax | (yMax << 16);
                 _ = agcHandler(interpreter, in normalized, fields);
@@ -501,6 +529,7 @@ internal static class GnmCommandPackets
         }
         var extents = Extents.GetOrCreateValue(interpreter);
         var values = (uint)payload.Length - 1;
+        var hintedBaseSlot = -1;
         if (startOffset >= ColorBase && startOffset < 0x390 && (startOffset - ColorBase) % ColorStride is 0 or ColorCmask)
         {
             var slot = (int)((startOffset - ColorBase) / ColorStride);
@@ -509,6 +538,8 @@ internal static class GnmCommandPackets
             {
                 extents.ColorHintAddress = packet.PacketAddress + packet.Length * sizeof(uint);
                 extents.ColorHintSlot = slot;
+                if (isBase)
+                    hintedBaseSlot = slot;
             }
             else if (isBase)
                 extents.Hints[slot] = 0;
@@ -519,6 +550,8 @@ internal static class GnmCommandPackets
             var baseOffset = ColorBase + (uint)slot * ColorStride;
             if (startOffset <= baseOffset && baseOffset < startOffset + values)
                 extents.GuestAddresses[slot] = interpreter.TypedRegisters.ColorTargetsForWrite[slot].BaseAddress;
+            if (slot == hintedBaseSlot)
+                extents.Hints[slot] = extents.ColorHints.GetValueOrDefault(extents.GuestAddresses[slot]);
             TranslateColorTarget(interpreter, extents, slot);
         }
         if (GnmDepthTargets.Touches(startOffset, values))
@@ -526,11 +559,14 @@ internal static class GnmCommandPackets
         return (uint)payload.Length;
     }
 
+    private static bool IsValidExtent(uint extent) =>
+        (extent & 0xFFFF) is not (0 or > 16384) && (extent >> 16) is not (0 or > 16384);
+
     private static void ApplyDepthExtent(GpuCommandInterpreter interpreter, in PacketContext packet, uint extent)
     {
         var width = extent & 0xFFFF;
         var height = extent >> 16;
-        if (width is 0 or > 16384 || height is 0 or > 16384)
+        if (!IsValidExtent(extent))
             return;
         Span<uint> fields = [ContextRegisterOffset.DbDepthSizeXy, (width - 1) | ((height - 1) << 16)];
         var normalized = packet with { Header = PacketHeader.Make(3, PacketOpcode.SetContextRegister) };

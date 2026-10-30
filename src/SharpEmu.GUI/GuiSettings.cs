@@ -87,6 +87,8 @@ public sealed class GuiSettings
 
     public string HdrMode { get; set; } = "Auto";
 
+    public string GpuReadbacks { get; set; } = "Full";
+
     public bool OverlayEnabled { get; set; } = true;
     public string OverlayCorner { get; set; } = "TopRight";
     public string OverlayMode { get; set; } = "TitleBar";
@@ -198,6 +200,7 @@ public sealed class GuiSettings
         settings.Resolution = NormalizeResolution(settings.Resolution);
         settings.ScalingMode = NormalizeChoice(settings.ScalingMode, "Fit", "Cover", "Stretch", "Integer");
         settings.HdrMode = NormalizeChoice(settings.HdrMode, "Auto", "On", "Off");
+        settings.GpuReadbacks = NormalizeChoice(settings.GpuReadbacks, "Full", "Off");
         settings.BinkPlaybackMode = NormalizeChoice(settings.BinkPlaybackMode, "Guest", "Host", "Skip");
         settings.OverlayCorner = NormalizeChoice(settings.OverlayCorner, "TopRight", "TopLeft", "BottomRight", "BottomLeft");
         settings.OverlayMode = NormalizeChoice(settings.OverlayMode, "TitleBar", "Full", "Minimal");

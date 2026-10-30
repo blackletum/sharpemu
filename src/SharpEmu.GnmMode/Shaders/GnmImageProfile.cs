@@ -5,6 +5,29 @@ using System.Diagnostics;
 
 namespace SharpEmu.GnmMode.Shaders;
 
+internal enum NormalizationInvalidation
+{
+    Reset,
+    Color,
+    Depth,
+    ColorCopy,
+    DepthCopy,
+    Linear,
+    DetileMiss,
+    DetileMoved,
+    Display,
+}
+
+internal enum TexturePreparation
+{
+    Ready,
+    Geometry,
+    GpuShadowChanged,
+    GpuWritten,
+    NoShadow,
+    StaleEpoch,
+}
+
 internal static class GnmImageProfile
 {
     private const int WindowSeconds = 5;
@@ -24,6 +47,8 @@ internal static class GnmImageProfile
     private static long _gpuReused;
     private static long _abandoned;
     private static long _invalidations;
+    private static readonly long[] _invalidationReasons = new long[Enum.GetValues<NormalizationInvalidation>().Length];
+    private static readonly long[] _unprepared = new long[Enum.GetValues<TexturePreparation>().Length];
 
     internal static long Start() => Enabled ? Stopwatch.GetTimestamp() : 0;
 
@@ -69,9 +94,40 @@ internal static class GnmImageProfile
         if (Enabled) Interlocked.Increment(ref _abandoned);
     }
 
-    internal static void NormalizationInvalidated()
+    internal static void NormalizationInvalidated(NormalizationInvalidation reason)
     {
-        if (Enabled) Interlocked.Increment(ref _invalidations);
+        if (!Enabled) return;
+        Interlocked.Increment(ref _invalidations);
+        Interlocked.Increment(ref _invalidationReasons[(int)reason]);
+    }
+
+    internal static void Unprepared(TexturePreparation reason)
+    {
+        if (Enabled) Interlocked.Increment(ref _unprepared[(int)reason]);
+    }
+
+    private static string TakeInvalidationReasons()
+    {
+        var parts = new List<string>();
+        for (var index = 0; index < _invalidationReasons.Length; index++)
+        {
+            var count = Interlocked.Exchange(ref _invalidationReasons[index], 0);
+            if (count != 0)
+                parts.Add($"{(NormalizationInvalidation)index}:{count}");
+        }
+        return parts.Count == 0 ? "none" : string.Join(",", parts);
+    }
+
+    private static string TakeUnprepared()
+    {
+        var parts = new List<string>();
+        for (var index = 0; index < _unprepared.Length; index++)
+        {
+            var count = Interlocked.Exchange(ref _unprepared[index], 0);
+            if (count != 0)
+                parts.Add($"{(TexturePreparation)index}:{count}");
+        }
+        return parts.Count == 0 ? "none" : string.Join(",", parts);
     }
 
     private static void Report()
@@ -94,7 +150,8 @@ internal static class GnmImageProfile
             return;
         Console.Error.WriteLine($"[PERF][GNM_IMAGES] window_s={WindowSeconds} normalize={normalizations}/{normalizeMs:F1}ms " +
             $"detile_hits={hits} hashes={hashes}/{hashedMb:F1}MB/{hashMs:F1}ms cpu_detiles={cpuDetiles}/{cpuDetileMs:F1}ms " +
-            $"gpu_detiles={gpuDetiles} gpu_reused={gpuReused} abandoned={abandoned} invalidations={invalidations}");
+            $"gpu_detiles={gpuDetiles} gpu_reused={gpuReused} abandoned={abandoned} invalidations={invalidations} " +
+            $"invalidation_reasons={TakeInvalidationReasons()} worker_unprepared={TakeUnprepared()}");
     }
 
     private static double Milliseconds(long ticks) => ticks * 1000.0 / Stopwatch.Frequency;

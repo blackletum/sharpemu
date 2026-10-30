@@ -169,7 +169,10 @@ public sealed partial class RenderExecutor
             depthState.BackMasks,
             (uint)position,
             colorWriteMask,
-            context.DepthCountControl);
+            context.DepthCountControl,
+            depthState.DepthBoundsTestEnabled,
+            depthState.DepthMinBounds,
+            depthState.DepthMaxBounds);
         if (ScissorTrace.Instance is { Active: true } trace)
             trace.Draw(banks, submitId, packetAddress, framebufferWidth, framebufferHeight,
                 state.ColorCount > 0 ? state.Colors[0].Resolution.BaseAddress : 0,
