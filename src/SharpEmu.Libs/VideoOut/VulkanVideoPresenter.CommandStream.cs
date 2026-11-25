@@ -1308,6 +1308,7 @@ internal static unsafe partial class VulkanVideoPresenter
 
             FlushBatchedGuestCommands();
             RunGuestCacheCollection(endsFrame: true);
+            ReleaseIdleSuperResolution();
             EnsureGuestSubmissionCapacity(collectNow: true);
             long version;
             lock (_gate)
