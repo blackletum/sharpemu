@@ -35,7 +35,12 @@ internal sealed class EmulatorProcess : IDisposable
 
     private static readonly object EnvironmentGate = new();
 
+    private const int GracefulStopMilliseconds = 10_000;
+    private const uint WindowCloseMessage = 0x0010;
+
     private readonly object _sync = new();
+    private readonly ManualResetEventSlim _exited = new(false);
+    private int _processId;
     private nint _processHandle;
     private nint _jobHandle;
     private Process? _fallbackProcess;
@@ -73,6 +78,8 @@ internal sealed class EmulatorProcess : IDisposable
             }
 
             _stopRequested = false;
+            _processId = 0;
+            _exited.Reset();
         }
 
         // CreateProcess and Process.Start both inherit the calling process's environment.
@@ -103,7 +110,44 @@ internal sealed class EmulatorProcess : IDisposable
         }
     }
 
-    public void Stop()
+    public void Stop() => Stop(graceful: true);
+
+    public void Stop(bool graceful)
+    {
+        int processId;
+        lock (_sync)
+        {
+            if (!_running)
+            {
+                return;
+            }
+
+            _stopRequested = true;
+            processId = _processId;
+        }
+
+        if (graceful && OperatingSystem.IsWindows() && processId != 0 && RequestWindowClose(processId))
+        {
+            var exited = _exited;
+            var watcher = new Thread(() =>
+            {
+                if (!exited.Wait(GracefulStopMilliseconds))
+                {
+                    Terminate();
+                }
+            }, 128 * 1024)
+            {
+                IsBackground = true,
+                Name = "SharpEmu stop watcher",
+            };
+            watcher.Start();
+            return;
+        }
+
+        Terminate();
+    }
+
+    private void Terminate()
     {
         nint processHandle;
         nint jobHandle;
@@ -115,7 +159,6 @@ internal sealed class EmulatorProcess : IDisposable
                 return;
             }
 
-            _stopRequested = true;
             processHandle = _processHandle;
             jobHandle = _jobHandle;
             fallbackProcess = _fallbackProcess;
@@ -158,7 +201,23 @@ internal sealed class EmulatorProcess : IDisposable
             _disposed = true;
         }
 
-        Stop();
+        Stop(graceful: false);
+    }
+
+    private static bool RequestWindowClose(int processId)
+    {
+        var requested = false;
+        EnumWindows((window, _) =>
+        {
+            if (IsWindowVisible(window) && GetWindowThreadProcessId(window, out var owner) != 0 && owner == (uint)processId &&
+                PostMessageW(window, WindowCloseMessage, 0, 0))
+            {
+                requested = true;
+            }
+
+            return true;
+        }, 0);
+        return requested;
     }
 
     private void StartFallback(string exePath, IReadOnlyList<string> arguments, string? workingDirectory)
@@ -190,6 +249,7 @@ internal sealed class EmulatorProcess : IDisposable
         lock (_sync)
         {
             _fallbackProcess = process;
+            _processId = process.Id;
             _running = true;
         }
 
@@ -312,6 +372,7 @@ internal sealed class EmulatorProcess : IDisposable
             {
                 _processHandle = processHandle;
                 _jobHandle = jobHandle;
+                _processId = processInfo.ProcessId;
                 _running = true;
             }
             processHandle = 0;
@@ -441,8 +502,10 @@ internal sealed class EmulatorProcess : IDisposable
 
             _fallbackProcess?.Dispose();
             _fallbackProcess = null;
+            _processId = 0;
         }
 
+        _exited.Set();
         Exited?.Invoke(exitCode);
     }
 
@@ -672,4 +735,21 @@ internal sealed class EmulatorProcess : IDisposable
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool CloseHandle(nint handle);
+
+    private delegate bool EnumWindowsCallback(nint window, nint parameter);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool EnumWindows(EnumWindowsCallback callback, nint parameter);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsWindowVisible(nint window);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(nint window, out uint processId);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool PostMessageW(nint window, uint message, nint wParam, nint lParam);
 }
