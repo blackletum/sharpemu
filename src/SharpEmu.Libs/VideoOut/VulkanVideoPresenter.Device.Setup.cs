@@ -181,7 +181,6 @@ internal static unsafe partial class VulkanVideoPresenter
 
             if (!SharpEmu.Libs.VideoOut.Upscaling.SuperResolutionSettings.WantsDlss)
             {
-                Console.Error.WriteLine("[DLSS][INFO] DLSS is off by the PSSR upscaler setting.");
                 return null;
             }
 
