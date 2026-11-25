@@ -226,7 +226,8 @@ public partial class MainWindow : Window
         string ConsoleLanguage,
         EffectiveLaunchSettings Settings,
         IReadOnlyDictionary<string, string?> Environment,
-        GnmLoadExecRequest? LoadExec = null);
+        GnmLoadExecRequest? LoadExec = null,
+        string ConsoleModel = "PS5");
 
     public MainWindow()
     {
@@ -407,6 +408,7 @@ public partial class MainWindow : Window
             _settings.ConsoleLanguage = SelectedComboText(ConsoleLanguageBox, "EnglishUS");
             ScheduleSettingsSave();
         };
+        InitializePssrControls();
         PortableDataToggle.IsCheckedChanged += (_, _) =>
         {
             var enabled = PortableDataToggle.IsChecked == true;
@@ -1532,6 +1534,7 @@ public partial class MainWindow : Window
         RefreshChoices(_binkPlaybackChoices);
         RefreshChoices(_overlayModeChoices);
         RefreshChoices(_overlayCornerChoices);
+        RefreshPssrChoices();
         RefreshEnvironmentSettingChoices();
     }
 
@@ -1548,6 +1551,7 @@ public partial class MainWindow : Window
         ConsoleLanguageBox.SelectedIndex = ChoiceIndex(
             _settings.ConsoleLanguage,
             _consoleLanguageChoices.Select(choice => choice.Value).ToArray());
+        ApplyPssrSettingsToControls();
         OverrideLogFileToggle.IsChecked = _settings.OverrideLogFile;
         TitleMusicToggle.IsChecked = _settings.PlayTitleMusic;
         TitleMusicVolumeSlider.Value = _settings.TitleMusicVolume * 100.0;
@@ -3125,7 +3129,8 @@ public partial class MainWindow : Window
             _runningGameTitleId,
             _settings.ConsoleLanguage,
             effective,
-            configuration.BuildEnvironment(_settings));
+            configuration.BuildEnvironment(_settings),
+            ConsoleModel: _settings.ConsoleModel);
 
         StartPendingSession();
     }
@@ -3261,7 +3266,7 @@ public partial class MainWindow : Window
 
     private List<string> BuildEmulatorArguments(PendingLaunch launch) =>
         new LaunchConfiguration(launch.Settings, []).BuildArguments(
-            launch.EbootPath, launch.ConsoleLanguage);
+            launch.EbootPath, launch.ConsoleLanguage, launch.ConsoleModel);
 
     private void OnEmulatorOutput(string line, bool isError)
     {
