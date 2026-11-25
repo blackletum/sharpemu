@@ -76,6 +76,7 @@ public sealed class ImageBacking
     public List<ImageAccessState>? SubresourceStates;
     public DeviceMemory Memory;
     public ulong AllocationSize;
+    public bool InSystemMemory;
 
     public bool Exists => Handle.Handle != 0;
 }
@@ -128,7 +129,7 @@ public sealed unsafe partial class CachedImage : IDisposable
     public bool DimensionTwinStale;
 
     public CachedImage(GpuDeviceInfo device, SubmissionScheduler scheduler, IGuestBackedSpace guestBacking, in ImageDescription description,
-        ImageBackingPool? pool = null, Action? reportAllocationFailure = null)
+        ImageBackingPool? pool = null, Action? reportAllocationFailure = null, bool deviceLocalOnly = false)
     {
         _device = device;
         _scheduler = scheduler;
@@ -200,7 +201,8 @@ public sealed unsafe partial class CachedImage : IDisposable
         var allocationAttempted = false;
         // Device-local memory first. When it is exhausted, any other type the image allows: system memory the device reads
         // over the bus is slow but keeps the run going, as GpuBuffer.RankMemoryTypes does for buffers.
-        for (var deviceLocalPass = 1; deviceLocalPass >= 0 && allocated != Result.Success; deviceLocalPass--)
+        var lastPass = deviceLocalOnly ? 1 : 0;
+        for (var deviceLocalPass = 1; deviceLocalPass >= lastPass && allocated != Result.Success; deviceLocalPass--)
         {
             for (uint index = 0; index < device.MemoryTypeCount; index++)
             {
@@ -217,12 +219,22 @@ public sealed unsafe partial class CachedImage : IDisposable
                 {
                     if (!deviceLocal)
                     {
+                        Backing.InSystemMemory = true;
+                        device.NoteDeviceLocalExhausted();
                         ReportSystemMemoryImage(create, requirements.Size, index);
                     }
 
                     break;
                 }
             }
+        }
+
+        if (deviceLocalOnly && allocated != Result.Success)
+        {
+            vk.DestroyImage(device.Device, Backing.Handle, null);
+            Backing.Handle = default;
+            Backing.Memory = default;
+            return;
         }
 
         var bindingResult = allocated == Result.Success
@@ -756,7 +768,7 @@ public sealed unsafe partial class CachedImage : IDisposable
         Views.Clear();
         if (Backing.Exists)
         {
-            if (_pool is null || !_pool.TryReturn(_poolKey, Backing.Handle, Backing.Memory, Backing.AllocationSize))
+            if (Backing.InSystemMemory || _pool is null || !_pool.TryReturn(_poolKey, Backing.Handle, Backing.Memory, Backing.AllocationSize))
             {
                 _device.Vk.DestroyImage(_device.Device, Backing.Handle, null);
                 _device.FreeMemory(Backing.Memory);
@@ -764,6 +776,29 @@ public sealed unsafe partial class CachedImage : IDisposable
 
             Backing.Handle = default;
             Backing.Memory = default;
+            Backing.InSystemMemory = false;
         }
+    }
+
+    internal void ExchangeBacking(CachedImage other)
+    {
+        (Backing.Handle, other.Backing.Handle) = (other.Backing.Handle, Backing.Handle);
+        (Backing.Memory, other.Backing.Memory) = (other.Backing.Memory, Backing.Memory);
+        (Backing.AllocationSize, other.Backing.AllocationSize) = (other.Backing.AllocationSize, Backing.AllocationSize);
+        (Backing.InSystemMemory, other.Backing.InSystemMemory) = (other.Backing.InSystemMemory, Backing.InSystemMemory);
+        (Backing.State, other.Backing.State) = (other.Backing.State, Backing.State);
+        (Backing.SubresourceStates, other.Backing.SubresourceStates) = (other.Backing.SubresourceStates, Backing.SubresourceStates);
+        lock (Views)
+        {
+            lock (other.Views)
+            {
+                other.Views.AddRange(Views);
+                Views.Clear();
+                Volatile.Write(ref other._viewSnapshot, other.Views.ToArray());
+                Volatile.Write(ref _viewSnapshot, []);
+            }
+        }
+
+        HeapChanged?.Invoke(this);
     }
 }

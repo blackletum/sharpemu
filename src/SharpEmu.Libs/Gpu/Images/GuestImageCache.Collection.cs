@@ -21,6 +21,11 @@ public sealed partial class GuestImageCache
         if (endsFrame && SharpEmu.Libs.VideoOut.RenderPhaseProfile.Enabled && tick % 300 == 0)
             ReportImageMemory("collection", true, tick);
         ExpireParkedImages(tick);
+        if (endsFrame)
+        {
+            ManageDeviceMemory(tick);
+        }
+
         if (_totalUsedMemory < _collectionStartBytes)
         {
             return;

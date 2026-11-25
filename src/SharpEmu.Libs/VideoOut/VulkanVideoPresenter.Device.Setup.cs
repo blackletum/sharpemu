@@ -813,8 +813,10 @@ internal static unsafe partial class VulkanVideoPresenter
         private const string FillRectangleExtensionName = "VK_NV_fill_rectangle";
         private const string ShaderImageAtomicInt64ExtensionName = "VK_EXT_shader_image_atomic_int64";
         private const string ShaderClockExtensionName = "VK_KHR_shader_clock";
+        private const string MemoryBudgetExtensionName = "VK_EXT_memory_budget";
         private const string UnifiedImageLayoutsExtensionName = "VK_KHR_unified_image_layouts";
         private bool _supportsImageViewMinLod;
+        private bool _supportsMemoryBudget;
         private const string MeshShaderExtensionName = "VK_EXT_mesh_shader";
         private bool _supportsUnifiedImageLayouts;
 
@@ -1241,6 +1243,7 @@ internal static unsafe partial class VulkanVideoPresenter
             var pipelineLibraryExtension = (byte*)SilkMarshal.StringToPtr(PipelineLibraryExtensionName);
             var graphicsPipelineLibraryExtension = (byte*)SilkMarshal.StringToPtr(GraphicsPipelineLibraryExtensionName);
             var deviceFaultExtension = (byte*)SilkMarshal.StringToPtr("VK_EXT_device_fault");
+            var memoryBudgetExtension = (byte*)SilkMarshal.StringToPtr(MemoryBudgetExtensionName);
             try
             {
                 var extensions = stackalloc byte*[24];
@@ -1317,6 +1320,12 @@ internal static unsafe partial class VulkanVideoPresenter
                 if (supportsRobustness2)
                 {
                     extensions[extensionCount++] = robustness2Extension;
+                }
+
+                _supportsMemoryBudget = IsDeviceExtensionAvailable(MemoryBudgetExtensionName);
+                if (_supportsMemoryBudget)
+                {
+                    extensions[extensionCount++] = memoryBudgetExtension;
                 }
 
                 if (IsDeviceExtensionAvailable(PortabilitySubsetExtensionName))
@@ -1580,6 +1589,7 @@ internal static unsafe partial class VulkanVideoPresenter
                 SilkMarshal.Free((nint)pipelineLibraryExtension);
                 SilkMarshal.Free((nint)graphicsPipelineLibraryExtension);
                 SilkMarshal.Free((nint)deviceFaultExtension);
+                SilkMarshal.Free((nint)memoryBudgetExtension);
                 SilkMarshal.Free((nint)robustness2Extension);
                 SilkMarshal.Free((nint)portabilitySubsetExtension);
                 SilkMarshal.Free((nint)colorWriteEnableExtension);
@@ -1592,7 +1602,7 @@ internal static unsafe partial class VulkanVideoPresenter
             }
 
             _vk.GetDeviceQueue(_device, _queueFamilyIndex, 0, out _queue);
-            _deviceInfo = new GpuDeviceInfo(_vk, _physicalDevice, _device) { ImageViewMinLodSupported = _supportsImageViewMinLod };
+            _deviceInfo = new GpuDeviceInfo(_vk, _physicalDevice, _device) { ImageViewMinLodSupported = _supportsImageViewMinLod, MemoryBudgetSupported = _supportsMemoryBudget };
             if (_readbackQueueFamilyIndex is { } readbackQueueFamily)
             {
                 _vk.GetDeviceQueue(_device, readbackQueueFamily, 0, out _readbackQueue);

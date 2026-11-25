@@ -142,6 +142,57 @@ public sealed unsafe class GpuDeviceInfo : IImageFormatSupport
 
     public int PeakAllocations => Volatile.Read(ref _peakAllocations);
 
+    private long _deviceLocalExhaustions;
+    private long _systemMemoryBufferBytes;
+    private int _systemMemoryBuffers;
+
+    public long DeviceLocalExhaustions => Interlocked.Read(ref _deviceLocalExhaustions);
+
+    public void NoteDeviceLocalExhausted() => Interlocked.Increment(ref _deviceLocalExhaustions);
+
+    public ulong SystemMemoryBufferBytes => (ulong)Math.Max(0, Interlocked.Read(ref _systemMemoryBufferBytes));
+
+    public int SystemMemoryBuffers => Volatile.Read(ref _systemMemoryBuffers);
+
+    internal void NoteSystemMemoryBuffer(ulong bytes, bool added)
+    {
+        Interlocked.Add(ref _systemMemoryBufferBytes, added ? (long)bytes : -(long)bytes);
+        Interlocked.Add(ref _systemMemoryBuffers, added ? 1 : -1);
+    }
+
+    public bool MemoryBudgetSupported { get; init; }
+
+    public bool TryGetDeviceLocalBudget(out ulong usage, out ulong budget)
+    {
+        usage = 0;
+        budget = 0;
+        if (!MemoryBudgetSupported)
+        {
+            return false;
+        }
+
+        var budgetProperties = new PhysicalDeviceMemoryBudgetPropertiesEXT
+        {
+            SType = StructureType.PhysicalDeviceMemoryBudgetPropertiesExt,
+        };
+        var properties = new PhysicalDeviceMemoryProperties2
+        {
+            SType = StructureType.PhysicalDeviceMemoryProperties2,
+            PNext = &budgetProperties,
+        };
+        Vk.GetPhysicalDeviceMemoryProperties2(PhysicalDevice, &properties);
+        for (uint heap = 0; heap < MemoryHeapCount && heap < Vk.MaxMemoryHeaps; heap++)
+        {
+            if (IsDeviceLocalHeap(heap))
+            {
+                usage += budgetProperties.HeapUsage[(int)heap];
+                budget += budgetProperties.HeapBudget[(int)heap];
+            }
+        }
+
+        return budget != 0;
+    }
+
     public MemoryPropertyFlags GetMemoryTypeFlags(uint index)
     {
         fixed (PhysicalDeviceMemoryProperties* properties = &_memoryProperties)

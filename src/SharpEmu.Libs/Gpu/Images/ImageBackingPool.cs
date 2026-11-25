@@ -128,6 +128,20 @@ public sealed unsafe class ImageBackingPool : IDisposable
         _device.FreeMemory(entry.Memory);
     }
 
+    public ulong PooledBytes => _pooledBytes;
+
+    public void Trim()
+    {
+        foreach (var (_, entry) in _order)
+        {
+            Destroy(entry);
+        }
+
+        _order.Clear();
+        _entries.Clear();
+        _pooledBytes = 0;
+    }
+
     public void Dispose()
     {
         if (_disposed)
