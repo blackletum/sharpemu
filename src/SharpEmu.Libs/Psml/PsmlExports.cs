@@ -312,6 +312,14 @@ public static class PsmlExports
         return ctx.SetReturn(0);
     }
 
+    private static void ConvertDispatchParameters900(Span<byte> block)
+    {
+        const int renderOffset = 0xF8;
+        const int renderOffsetBytes = 8;
+        block[renderOffset..^renderOffsetBytes].CopyTo(block[(renderOffset + renderOffsetBytes)..]);
+        block.Slice(renderOffset, renderOffsetBytes).Clear();
+    }
+
     private static int WriteDispatchPacket(CpuContext ctx, string variant)
     {
         var handle = ctx[CpuRegister.Rdi];
@@ -334,6 +342,11 @@ public static class PsmlExports
         if (!ctx.Memory.TryRead(parameters, block))
         {
             return ctx.SetReturn(OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT);
+        }
+
+        if (variant == "900")
+        {
+            ConvertDispatchParameters900(block);
         }
 
         Span<uint> textures = stackalloc uint[SuperResolutionPacket.TextureCount * SuperResolutionPacket.TextureDwords];
